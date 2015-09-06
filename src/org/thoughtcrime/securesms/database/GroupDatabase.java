@@ -79,24 +79,33 @@ public class GroupDatabase extends Database {
     return record;
   }
 
+  public Reader getGroupsFilteredByTitle(String constraint) {
+    Cursor cursor = databaseHelper.getReadableDatabase().query(TABLE_NAME, null, TITLE + " LIKE ?",
+                                                               new String[]{"%" + constraint + "%"},
+                                                               null, null, null);
+
+    return new Reader(cursor);
+  }
+
+  public Reader getGroups() {
+    Cursor cursor = databaseHelper.getReadableDatabase().query(TABLE_NAME, null, null, null, null, null, null);
+    return new Reader(cursor);
+  }
+
   public Recipients getGroupMembers(byte[] groupId, boolean includeSelf) {
     String          localNumber = TextSecurePreferences.getLocalNumber(context);
     List<String>    members     = getCurrentMembers(groupId);
-    List<Recipient> recipients  = new LinkedList<Recipient>();
+    List<Recipient> recipients  = new LinkedList<>();
 
     for (String member : members) {
       if (!includeSelf && member.equals(localNumber))
         continue;
 
-      try {
-        recipients.addAll(RecipientFactory.getRecipientsFromString(context, member, false)
-                                          .getRecipientsList());
-      } catch (RecipientFormattingException e) {
-        Log.w("GroupDatabase", e);
-      }
+      recipients.addAll(RecipientFactory.getRecipientsFromString(context, member, false)
+                                        .getRecipientsList());
     }
 
-    return new Recipients(recipients);
+    return RecipientFactory.getRecipientsFor(context, recipients, false);
   }
 
   public void create(byte[] groupId, String title, List<String> members,
@@ -294,6 +303,10 @@ public class GroupDatabase extends Database {
       } catch (IOException ioe) {
         throw new AssertionError(ioe);
       }
+    }
+
+    public String getEncodedId() {
+      return id;
     }
 
     public String getTitle() {

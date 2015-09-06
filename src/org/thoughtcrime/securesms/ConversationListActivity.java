@@ -21,23 +21,16 @@ import android.database.ContentObserver;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.ContactsContract;
+import android.support.annotation.NonNull;
+import android.support.v7.app.ActionBar;
 import android.util.Log;
-import android.provider.Telephony;
-import android.support.v4.app.ActionBarDrawerToggle;
-import android.support.v4.view.GravityCompat;
 import android.support.v4.view.MenuItemCompat;
-import android.support.v4.widget.DrawerLayout;
 import android.support.v7.widget.SearchView;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
-import android.view.View;
-import android.view.WindowManager;
-import android.widget.AdapterView;
-import android.widget.ListView;
-import android.widget.SimpleAdapter;
 
+import org.thoughtcrime.securesms.components.RatingManager;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
@@ -47,43 +40,38 @@ import org.thoughtcrime.securesms.service.DirectoryRefreshListener;
 import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.DynamicTheme;
-import org.thoughtcrime.securesms.util.MemoryCleaner;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
-
 
 public class ConversationListActivity extends PassphraseRequiredActionBarActivity
     implements ConversationListFragment.ConversationSelectedListener
-  {
+{
+  private static final String TAG = ConversationListActivity.class.getSimpleName();
+
   private final DynamicTheme    dynamicTheme    = new DynamicTheme   ();
   private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
 
   private ConversationListFragment fragment;
-  private MasterSecret    masterSecret;
   private ContentObserver observer;
+  private MasterSecret masterSecret;
 
   @Override
-  public void onCreate(Bundle icicle) {
+  protected void onPreCreate() {
     dynamicTheme.onCreate(this);
     dynamicLanguage.onCreate(this);
-    super.onCreate(icicle);
-
-    setContentView(R.layout.conversation_list_activity);
-
-    getSupportActionBar().setHomeButtonEnabled(true);
-    getSupportActionBar().setDisplayShowHomeEnabled(true);
-    getSupportActionBar().setDisplayUseLogoEnabled(true);
-
-    getSupportActionBar().setTitle(R.string.app_name);
-
-    initializeResources();
-    initializeContactUpdatesReceiver();
-
-    DirectoryRefreshListener.schedule(this);
   }
 
   @Override
-  public void onPostCreate(Bundle bundle) {
-    super.onPostCreate(bundle);
+  protected void onCreate(Bundle icicle, @NonNull MasterSecret masterSecret) {
+    this.masterSecret = masterSecret;
+
+    getSupportActionBar().setDisplayOptions(ActionBar.DISPLAY_SHOW_HOME | ActionBar.DISPLAY_SHOW_TITLE);
+    getSupportActionBar().setTitle(R.string.app_name);
+    fragment = initFragment(android.R.id.content, new ConversationListFragment(), masterSecret, dynamicLanguage.getCurrentLocale());
+
+    initializeContactUpdatesReceiver();
+
+    DirectoryRefreshListener.schedule(this);
+    RatingManager.showRatingDialogIfNecessary(this);
   }
 
   @Override
@@ -95,17 +83,8 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
 
   @Override
   public void onDestroy() {
-    Log.w("ConversationListActivity", "onDestroy...");
-    MemoryCleaner.clean(masterSecret);
     if (observer != null) getContentResolver().unregisterContentObserver(observer);
     super.onDestroy();
-  }
-
-  @Override
-  public void onMasterSecretCleared() {
-//    this.fragment.setMasterSecret(null);
-    startActivity(new Intent(this, RoutingActivity.class));
-    super.onMasterSecretCleared();
   }
 
   @Override
@@ -117,34 +96,47 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
 
     menu.findItem(R.id.menu_clear_passphrase).setVisible(!TextSecurePreferences.isPasswordDisabled(this));
 
-    if (this.masterSecret != null) {
-      inflater.inflate(R.menu.conversation_list, menu);
-      MenuItem menuItem = menu.findItem(R.id.menu_search);
-      SearchView searchView = (SearchView) MenuItemCompat.getActionView(menuItem);
-      initializeSearch(searchView);
-    } else {
-      inflater.inflate(R.menu.conversation_list_empty, menu);
-    }
+    inflater.inflate(R.menu.conversation_list, menu);
+    MenuItem menuItem = menu.findItem(R.id.menu_search);
+    initializeSearch(menuItem);
 
     super.onPrepareOptionsMenu(menu);
     return true;
   }
 
-  private void initializeSearch(SearchView searchView) {
+  private void initializeSearch(MenuItem searchViewItem) {
+    SearchView searchView = (SearchView)MenuItemCompat.getActionView(searchViewItem);
+    searchView.setQueryHint(getString(R.string.ConversationListActivity_search));
     searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
       @Override
       public boolean onQueryTextSubmit(String query) {
-        ConversationListFragment fragment = (ConversationListFragment)getSupportFragmentManager()
-            .findFragmentById(R.id.fragment_content);
         if (fragment != null) {
           fragment.setQueryFilter(query);
           return true;
         }
+
         return false;
       }
+
       @Override
       public boolean onQueryTextChange(String newText) {
         return onQueryTextSubmit(newText);
+      }
+    });
+
+    MenuItemCompat.setOnActionExpandListener(searchViewItem, new MenuItemCompat.OnActionExpandListener() {
+      @Override
+      public boolean onMenuItemActionExpand(MenuItem menuItem) {
+        return true;
+      }
+
+      @Override
+      public boolean onMenuItemActionCollapse(MenuItem menuItem) {
+        if (fragment != null) {
+          fragment.resetQueryFilter();
+        }
+
+        return true;
       }
     });
   }
@@ -154,7 +146,6 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     super.onOptionsItemSelected(item);
 
     switch (item.getItemId()) {
-    case R.id.menu_new_message:       openSingleContactSelection();   return true;
     case R.id.menu_new_group:         createGroup();                  return true;
     case R.id.menu_settings:          handleDisplaySettings();        return true;
     case R.id.menu_clear_passphrase:  handleClearPassphrase();        return true;
@@ -173,29 +164,21 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
 
   private void createGroup() {
     Intent intent = new Intent(this, GroupCreateActivity.class);
-    intent.putExtra("master_secret", masterSecret);
-    startActivity(intent);
-  }
-
-  private void openSingleContactSelection() {
-    Intent intent = new Intent(this, NewConversationActivity.class);
-    intent.putExtra(NewConversationActivity.MASTER_SECRET_EXTRA, masterSecret);
     startActivity(intent);
   }
 
   private void createConversation(long threadId, Recipients recipients, int distributionType) {
     Intent intent = new Intent(this, ConversationActivity.class);
-    intent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.toIdString());
+    intent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.getIds());
     intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, threadId);
-    intent.putExtra(ConversationActivity.MASTER_SECRET_EXTRA, masterSecret);
     intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, distributionType);
 
     startActivity(intent);
+    overridePendingTransition(R.anim.slide_from_right, R.anim.fade_scale_out);
   }
 
   private void handleDisplaySettings() {
     Intent preferencesIntent = new Intent(this, ApplicationPreferencesActivity.class);
-    preferencesIntent.putExtra("master_secret", masterSecret);
     startActivity(preferencesIntent);
   }
 
@@ -206,15 +189,11 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
   }
 
   private void handleImportExport() {
-    final Intent intent = new Intent(this, ImportExportActivity.class);
-    intent.putExtra("master_secret", masterSecret);
-    startActivity(intent);
+    startActivity(new Intent(this, ImportExportActivity.class));
   }
 
   private void handleMyIdentity() {
-    final Intent intent = new Intent(this, ViewLocalIdentityActivity.class);
-    intent.putExtra("master_secret", masterSecret);
-    startActivity(intent);
+    startActivity(new Intent(this, ViewLocalIdentityActivity.class));
   }
 
   private void handleMarkAllRead() {
@@ -233,28 +212,18 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
       @Override
       public void onChange(boolean selfChange) {
         super.onChange(selfChange);
-        Log.w("ConversationListActivity", "detected android contact data changed, refreshing cache");
-        // TODO only clear updated recipients from cache
+        Log.w(TAG, "Detected android contact data changed, refreshing cache");
         RecipientFactory.clearCache();
         ConversationListActivity.this.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                ((ConversationListAdapter)fragment.getListAdapter()).notifyDataSetChanged();
-              }
-          });
+          @Override
+          public void run() {
+            fragment.getListAdapter().notifyDataSetChanged();
+          }
+        });
       }
     };
 
     getContentResolver().registerContentObserver(ContactsContract.Contacts.CONTENT_URI,
                                                  true, observer);
-  }
-
-  private void initializeResources() {
-    this.masterSecret = getIntent().getParcelableExtra("master_secret");
-
-    this.fragment = (ConversationListFragment)this.getSupportFragmentManager()
-                                                  .findFragmentById(R.id.fragment_content);
-
-    this.fragment.setMasterSecret(masterSecret);
   }
 }

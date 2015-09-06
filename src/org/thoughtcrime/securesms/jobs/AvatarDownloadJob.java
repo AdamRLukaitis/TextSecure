@@ -4,29 +4,28 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.util.Log;
 
-import org.thoughtcrime.securesms.Release;
+import org.thoughtcrime.securesms.BuildConfig;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.jobs.requirements.MasterSecretRequirement;
+import org.thoughtcrime.securesms.mms.AttachmentStreamUriLoader.AttachmentModel;
 import org.thoughtcrime.securesms.push.TextSecurePushTrustStore;
-import org.thoughtcrime.securesms.recipients.Recipient;
-import org.thoughtcrime.securesms.recipients.RecipientFactory;
-import org.thoughtcrime.securesms.recipients.RecipientFormattingException;
 import org.thoughtcrime.securesms.util.BitmapDecodingException;
 import org.thoughtcrime.securesms.util.BitmapUtil;
-import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.whispersystems.jobqueue.JobParameters;
 import org.whispersystems.jobqueue.requirements.NetworkRequirement;
 import org.whispersystems.libaxolotl.InvalidMessageException;
 import org.whispersystems.textsecure.api.crypto.AttachmentCipherInputStream;
-import org.whispersystems.textsecure.internal.push.PushServiceSocket;
 import org.whispersystems.textsecure.api.push.exceptions.NonSuccessfulResponseCodeException;
+import org.whispersystems.textsecure.internal.push.PushServiceSocket;
+import org.whispersystems.textsecure.internal.util.StaticCredentialsProvider;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.ExecutionException;
 
 public class AvatarDownloadJob extends MasterSecretJob {
 
@@ -64,22 +63,11 @@ public class AvatarDownloadJob extends MasterSecretJob {
         }
 
         attachment = downloadAttachment(relay, avatarId);
-
-        InputStream scaleInputStream   = new AttachmentCipherInputStream(attachment, key);
-        InputStream measureInputStream = new AttachmentCipherInputStream(attachment, key);
-        Bitmap      avatar             = BitmapUtil.createScaledBitmap(measureInputStream, scaleInputStream, 500, 500);
+        Bitmap avatar = BitmapUtil.createScaledBitmap(context, new AttachmentModel(attachment, key), 500, 500);
 
         database.updateAvatar(groupId, avatar);
-
-        try {
-          Recipient groupRecipient = RecipientFactory.getRecipientsFromString(context, GroupUtil.getEncodedId(groupId), true)
-                                                     .getPrimaryRecipient();
-          groupRecipient.setContactPhoto(avatar);
-        } catch (RecipientFormattingException e) {
-          Log.w("AvatarDownloader", e);
-        }
       }
-    } catch (InvalidMessageException | BitmapDecodingException | NonSuccessfulResponseCodeException e) {
+    } catch (ExecutionException | NonSuccessfulResponseCodeException e) {
       Log.w(TAG, e);
     } finally {
       if (attachment != null)
@@ -97,16 +85,17 @@ public class AvatarDownloadJob extends MasterSecretJob {
   }
 
   private File downloadAttachment(String relay, long contentLocation) throws IOException {
-    PushServiceSocket socket = new PushServiceSocket(Release.PUSH_URL,
+    PushServiceSocket socket = new PushServiceSocket(BuildConfig.PUSH_URL,
                                                      new TextSecurePushTrustStore(context),
-                                                     TextSecurePreferences.getLocalNumber(context),
-                                                     TextSecurePreferences.getPushServerPassword(context));
+                                                     new StaticCredentialsProvider(TextSecurePreferences.getLocalNumber(context),
+                                                                                   TextSecurePreferences.getPushServerPassword(context),
+                                                                                   null));
 
     File destination = File.createTempFile("avatar", "tmp");
 
     destination.deleteOnExit();
 
-    socket.retrieveAttachment(relay, contentLocation, destination);
+    socket.retrieveAttachment(relay, contentLocation, destination, null);
 
     return destination;
   }

@@ -16,74 +16,34 @@
  */
 package org.thoughtcrime.securesms.mms;
 
-import java.io.FileNotFoundException;
+import android.content.Context;
+import android.content.res.Resources.Theme;
+import android.net.Uri;
+import android.support.annotation.DrawableRes;
+import android.support.annotation.NonNull;
+
+import org.thoughtcrime.securesms.crypto.MasterSecret;
+import org.thoughtcrime.securesms.util.Util;
+
 import java.io.IOException;
 import java.io.InputStream;
-
-import org.w3c.dom.smil.SMILDocument;
-import org.w3c.dom.smil.SMILMediaElement;
-import org.w3c.dom.smil.SMILRegionElement;
-import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.providers.PartProvider;
-
-import android.content.ContentUris;
-import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.drawable.Drawable;
-import android.net.Uri;
-import android.util.Log;
-import android.widget.ImageView;
 
 import ws.com.google.android.mms.pdu.PduPart;
 
 public abstract class Slide {
 
-  protected static final int MAX_MESSAGE_SIZE = 280 * 1024;
+  protected final PduPart      part;
+  protected final Context      context;
+  protected       MasterSecret masterSecret;
 
-  protected final PduPart part;
-  protected final Context context;
-  protected MasterSecret masterSecret;
-
-  public Slide(Context context, PduPart part) {
+  public Slide(Context context, @NonNull PduPart part) {
     this.part    = part;
     this.context = context;
   }
 
-  public Slide(Context context, MasterSecret masterSecret, PduPart part) {
+  public Slide(Context context, @NonNull MasterSecret masterSecret, @NonNull PduPart part) {
     this(context, part);
     this.masterSecret = masterSecret;
-  }
-
-  public InputStream getPartDataInputStream() throws FileNotFoundException {
-    Uri partUri = part.getDataUri();
-
-    Log.w("Slide", "Loading Part URI: " + partUri);
-
-    if (PartProvider.isAuthority(partUri))
-      return DatabaseFactory.getEncryptingPartDatabase(context, masterSecret).getPartStream(ContentUris.parseId(partUri));
-    else
-      return context.getContentResolver().openInputStream(partUri);
-  }
-
-  protected static long getMediaSize(Context context, Uri uri) throws IOException {
-    InputStream in = context.getContentResolver().openInputStream(uri);
-    long   size    = 0;
-    byte[] buffer  = new byte[512];
-    int read;
-
-    while ((read = in.read(buffer)) != -1)
-      size += read;
-
-    return size;
-  }
-
-  protected byte[] getPartData() {
-    if (part.getData() != null)
-      return part.getData();
-
-    long partId = ContentUris.parseId(part.getDataUri());
-    return DatabaseFactory.getEncryptingPartDatabase(context, masterSecret).getPart(partId, true).getData();
   }
 
   public String getContentType() {
@@ -92,14 +52,6 @@ public abstract class Slide {
 
   public Uri getUri() {
     return part.getDataUri();
-  }
-
-  public Drawable getThumbnail(int maxWidth, int maxHeight) {
-    throw new AssertionError("getThumbnail() called on non-thumbnail producing slide!");
-  }
-
-  public void setThumbnailOn(ImageView imageView) {
-    imageView.setImageDrawable(getThumbnail(imageView.getWidth(), imageView.getHeight()));
   }
 
   public boolean hasImage() {
@@ -114,23 +66,66 @@ public abstract class Slide {
     return false;
   }
 
-  public Bitmap getImage() {
-    throw new AssertionError("getImage() called on non-image slide!");
-  }
-
-  public boolean hasText() {
-    return false;
-  }
-
-  public String getText() {
-    throw new AssertionError("getText() called on non-text slide!");
-  }
-
   public PduPart getPart() {
     return part;
   }
 
-  public abstract SMILRegionElement getSmilRegion(SMILDocument document);
+  public Uri getThumbnailUri() {
+    return null;
+  }
 
-  public abstract SMILMediaElement getMediaElement(SMILDocument document);
+  public boolean isInProgress() {
+    return part.isInProgress();
+  }
+
+  public long getTransferProgress() {
+    return part.getTransferProgress();
+  }
+
+  public @DrawableRes int getPlaceholderRes(Theme theme) {
+    throw new AssertionError("getPlaceholderRes() called for non-drawable slide");
+  }
+
+  public boolean isDraft() {
+    return !getPart().getPartId().isValid();
+  }
+
+  protected static void assertMediaSize(Context context, Uri uri, long max)
+      throws MediaTooLargeException, IOException
+  {
+    InputStream in = context.getContentResolver().openInputStream(uri);
+    long   size    = 0;
+    byte[] buffer  = new byte[512];
+    int read;
+
+    while ((read = in.read(buffer)) != -1) {
+      size += read;
+      if (size > max) throw new MediaTooLargeException("Media exceeds maximum message size.");
+    }
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (!(other instanceof Slide)) return false;
+
+    Slide that = (Slide)other;
+
+    return Util.equals(this.getContentType(), that.getContentType()) &&
+           this.hasAudio() == that.hasAudio()                        &&
+           this.hasImage() == that.hasImage()                        &&
+           this.hasVideo() == that.hasVideo()                        &&
+           this.isDraft() == that.isDraft()                          &&
+           this.getTransferProgress() == that.getTransferProgress()  &&
+           Util.equals(this.getUri(), that.getUri())                 &&
+           Util.equals(this.getThumbnailUri(), that.getThumbnailUri());
+  }
+
+  @Override
+  public int hashCode() {
+    return Util.hashCode(getContentType(), hasAudio(), hasImage(),
+                         hasVideo(), isDraft(), getUri(), getThumbnailUri(), getTransferProgress());
+  }
+
+
+
 }

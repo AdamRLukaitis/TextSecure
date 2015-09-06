@@ -26,6 +26,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import org.thoughtcrime.securesms.DatabaseUpgradeActivity;
+import org.thoughtcrime.securesms.contacts.ContactsDatabase;
 import org.thoughtcrime.securesms.crypto.DecryptingPartInputStream;
 import org.thoughtcrime.securesms.crypto.MasterCipher;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
@@ -39,31 +40,38 @@ import org.whispersystems.libaxolotl.InvalidMessageException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 import ws.com.google.android.mms.ContentType;
 
 public class DatabaseFactory {
 
-  private static final int INTRODUCED_IDENTITIES_VERSION     = 2;
-  private static final int INTRODUCED_INDEXES_VERSION        = 3;
-  private static final int INTRODUCED_DATE_SENT_VERSION      = 4;
-  private static final int INTRODUCED_DRAFTS_VERSION         = 5;
-  private static final int INTRODUCED_NEW_TYPES_VERSION      = 6;
-  private static final int INTRODUCED_MMS_BODY_VERSION       = 7;
-  private static final int INTRODUCED_MMS_FROM_VERSION       = 8;
-  private static final int INTRODUCED_TOFU_IDENTITY_VERSION  = 9;
-  private static final int INTRODUCED_PUSH_DATABASE_VERSION  = 10;
-  private static final int INTRODUCED_GROUP_DATABASE_VERSION = 11;
-  private static final int INTRODUCED_PUSH_FIX_VERSION       = 12;
-  private static final int INTRODUCED_DELIVERY_RECEIPTS      = 13;
-  private static final int DATABASE_VERSION                  = 13;
-
+  private static final int INTRODUCED_IDENTITIES_VERSION       = 2;
+  private static final int INTRODUCED_INDEXES_VERSION          = 3;
+  private static final int INTRODUCED_DATE_SENT_VERSION        = 4;
+  private static final int INTRODUCED_DRAFTS_VERSION           = 5;
+  private static final int INTRODUCED_NEW_TYPES_VERSION        = 6;
+  private static final int INTRODUCED_MMS_BODY_VERSION         = 7;
+  private static final int INTRODUCED_MMS_FROM_VERSION         = 8;
+  private static final int INTRODUCED_TOFU_IDENTITY_VERSION    = 9;
+  private static final int INTRODUCED_PUSH_DATABASE_VERSION    = 10;
+  private static final int INTRODUCED_GROUP_DATABASE_VERSION   = 11;
+  private static final int INTRODUCED_PUSH_FIX_VERSION         = 12;
+  private static final int INTRODUCED_DELIVERY_RECEIPTS        = 13;
+  private static final int INTRODUCED_PART_DATA_SIZE_VERSION   = 14;
+  private static final int INTRODUCED_THUMBNAILS_VERSION       = 15;
+  private static final int INTRODUCED_IDENTITY_COLUMN_VERSION  = 16;
+  private static final int INTRODUCED_UNIQUE_PART_IDS_VERSION  = 17;
+  private static final int INTRODUCED_RECIPIENT_PREFS_DB       = 18;
+  private static final int INTRODUCED_ENVELOPE_CONTENT_VERSION = 19;
+  private static final int INTRODUCED_COLOR_PREFERENCE_VERSION = 20;
+  private static final int INTRODUCED_DB_OPTIMIZATIONS_VERSION = 21;
+  private static final int DATABASE_VERSION                    = 21;
 
   private static final String DATABASE_NAME    = "messages.db";
   private static final Object lock             = new Object();
 
   private static DatabaseFactory instance;
-  private static EncryptingPartDatabase encryptingPartInstance;
 
   private DatabaseHelper databaseHelper;
 
@@ -79,11 +87,13 @@ public class DatabaseFactory {
   private final DraftDatabase draftDatabase;
   private final PushDatabase pushDatabase;
   private final GroupDatabase groupDatabase;
+  private final RecipientPreferenceDatabase recipientPreferenceDatabase;
+  private final ContactsDatabase contactsDatabase;
 
   public static DatabaseFactory getInstance(Context context) {
     synchronized (lock) {
       if (instance == null)
-        instance = new DatabaseFactory(context);
+        instance = new DatabaseFactory(context.getApplicationContext());
 
       return instance;
     }
@@ -117,17 +127,6 @@ public class DatabaseFactory {
     return getInstance(context).part;
   }
 
-  public static EncryptingPartDatabase getEncryptingPartDatabase(Context context, MasterSecret masterSecret) {
-    synchronized (lock)  {
-      if (encryptingPartInstance == null) {
-        DatabaseFactory factory = getInstance(context);
-        encryptingPartInstance  = new EncryptingPartDatabase(context, factory.databaseHelper, masterSecret);
-      }
-
-      return encryptingPartInstance;
-    }
-  }
-
   public static MmsAddressDatabase getMmsAddressDatabase(Context context) {
     return getInstance(context).mmsAddress;
   }
@@ -148,20 +147,30 @@ public class DatabaseFactory {
     return getInstance(context).groupDatabase;
   }
 
+  public static RecipientPreferenceDatabase getRecipientPreferenceDatabase(Context context) {
+    return getInstance(context).recipientPreferenceDatabase;
+  }
+
+  public static ContactsDatabase getContactsDatabase(Context context) {
+    return getInstance(context).contactsDatabase;
+  }
+
   private DatabaseFactory(Context context) {
-    this.databaseHelper   = new DatabaseHelper(context, DATABASE_NAME, null, DATABASE_VERSION);
-    this.sms              = new SmsDatabase(context, databaseHelper);
-    this.encryptingSms    = new EncryptingSmsDatabase(context, databaseHelper);
-    this.mms              = new MmsDatabase(context, databaseHelper);
-    this.part             = new PartDatabase(context, databaseHelper);
-    this.thread           = new ThreadDatabase(context, databaseHelper);
-    this.address          = CanonicalAddressDatabase.getInstance(context);
-    this.mmsAddress       = new MmsAddressDatabase(context, databaseHelper);
-    this.mmsSmsDatabase   = new MmsSmsDatabase(context, databaseHelper);
-    this.identityDatabase = new IdentityDatabase(context, databaseHelper);
-    this.draftDatabase    = new DraftDatabase(context, databaseHelper);
-    this.pushDatabase     = new PushDatabase(context, databaseHelper);
-    this.groupDatabase    = new GroupDatabase(context, databaseHelper);
+    this.databaseHelper              = new DatabaseHelper(context, DATABASE_NAME, null, DATABASE_VERSION);
+    this.sms                         = new SmsDatabase(context, databaseHelper);
+    this.encryptingSms               = new EncryptingSmsDatabase(context, databaseHelper);
+    this.mms                         = new MmsDatabase(context, databaseHelper);
+    this.part                        = new PartDatabase(context, databaseHelper);
+    this.thread                      = new ThreadDatabase(context, databaseHelper);
+    this.address                     = CanonicalAddressDatabase.getInstance(context);
+    this.mmsAddress                  = new MmsAddressDatabase(context, databaseHelper);
+    this.mmsSmsDatabase              = new MmsSmsDatabase(context, databaseHelper);
+    this.identityDatabase            = new IdentityDatabase(context, databaseHelper);
+    this.draftDatabase               = new DraftDatabase(context, databaseHelper);
+    this.pushDatabase                = new PushDatabase(context, databaseHelper);
+    this.groupDatabase               = new GroupDatabase(context, databaseHelper);
+    this.recipientPreferenceDatabase = new RecipientPreferenceDatabase(context, databaseHelper);
+    this.contactsDatabase            = new ContactsDatabase(context);
   }
 
   public void reset(Context context) {
@@ -179,6 +188,7 @@ public class DatabaseFactory {
     this.draftDatabase.reset(databaseHelper);
     this.pushDatabase.reset(databaseHelper);
     this.groupDatabase.reset(databaseHelper);
+    this.recipientPreferenceDatabase.reset(databaseHelper);
     old.close();
 
     this.address.reset(context);
@@ -360,12 +370,12 @@ public class DatabaseFactory {
               boolean encrypted   = partCursor.getInt(partCursor.getColumnIndexOrThrow("encrypted")) == 1;
               File dataFile       = new File(dataLocation);
 
-              FileInputStream fin;
+              InputStream is;
 
-              if (encrypted) fin = new DecryptingPartInputStream(dataFile, masterSecret);
-              else           fin = new FileInputStream(dataFile);
+              if (encrypted) is = new DecryptingPartInputStream(dataFile, masterSecret);
+              else           is = new FileInputStream(dataFile);
 
-              body = (body == null) ? Util.readFully(fin) : body + " " + Util.readFully(fin);
+              body = (body == null) ? Util.readFullyAsString(is) : body + " " + Util.readFullyAsString(is);
 
               dataFile.delete();
               db.delete("part", "_id = ?", new String[] {partId+""});
@@ -488,6 +498,7 @@ public class DatabaseFactory {
       db.execSQL(DraftDatabase.CREATE_TABLE);
       db.execSQL(PushDatabase.CREATE_TABLE);
       db.execSQL(GroupDatabase.CREATE_TABLE);
+      db.execSQL(RecipientPreferenceDatabase.CREATE_TABLE);
 
       executeStatements(db, SmsDatabase.CREATE_INDEXS);
       executeStatements(db, MmsDatabase.CREATE_INDEXS);
@@ -709,6 +720,45 @@ public class DatabaseFactory {
         db.execSQL("ALTER TABLE mms ADD COLUMN delivery_receipt_count INTEGER DEFAULT 0;");
         db.execSQL("CREATE INDEX IF NOT EXISTS sms_date_sent_index ON sms (date_sent);");
         db.execSQL("CREATE INDEX IF NOT EXISTS mms_date_sent_index ON mms (date);");
+      }
+
+      if (oldVersion < INTRODUCED_PART_DATA_SIZE_VERSION) {
+        db.execSQL("ALTER TABLE part ADD COLUMN data_size INTEGER DEFAULT 0;");
+      }
+
+      if (oldVersion < INTRODUCED_THUMBNAILS_VERSION) {
+        db.execSQL("ALTER TABLE part ADD COLUMN thumbnail TEXT;");
+        db.execSQL("ALTER TABLE part ADD COLUMN aspect_ratio REAL;");
+      }
+
+      if (oldVersion < INTRODUCED_IDENTITY_COLUMN_VERSION) {
+        db.execSQL("ALTER TABLE sms ADD COLUMN mismatched_identities TEXT");
+        db.execSQL("ALTER TABLE mms ADD COLUMN mismatched_identities TEXT");
+        db.execSQL("ALTER TABLE mms ADD COLUMN network_failures TEXT");
+      }
+
+      if (oldVersion < INTRODUCED_UNIQUE_PART_IDS_VERSION) {
+        db.execSQL("ALTER TABLE part ADD COLUMN unique_id INTEGER NOT NULL DEFAULT 0");
+      }
+
+      if (oldVersion < INTRODUCED_RECIPIENT_PREFS_DB) {
+        db.execSQL("CREATE TABLE recipient_preferences " +
+                   "(_id INTEGER PRIMARY KEY, recipient_ids TEXT UNIQUE, block INTEGER DEFAULT 0, " +
+                   "notification TEXT DEFAULT NULL, vibrate INTEGER DEFAULT 0, mute_until INTEGER DEFAULT 0)");
+      }
+
+      if (oldVersion < INTRODUCED_ENVELOPE_CONTENT_VERSION) {
+        db.execSQL("ALTER TABLE push ADD COLUMN content TEXT");
+      }
+
+      if (oldVersion < INTRODUCED_COLOR_PREFERENCE_VERSION) {
+        db.execSQL("ALTER TABLE recipient_preferences ADD COLUMN color TEXT DEFAULT NULL");
+      }
+
+      if (oldVersion < INTRODUCED_DB_OPTIMIZATIONS_VERSION) {
+        db.execSQL("UPDATE mms SET date_received = (date_received * 1000), date = (date * 1000);");
+        db.execSQL("CREATE INDEX IF NOT EXISTS sms_thread_date_index ON sms (thread_id, date);");
+        db.execSQL("CREATE INDEX IF NOT EXISTS mms_thread_date_index ON mms (thread_id, date_received);");
       }
 
       db.setTransactionSuccessful();

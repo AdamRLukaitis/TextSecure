@@ -18,21 +18,21 @@ package org.thoughtcrime.securesms;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.util.Log;
+import android.support.annotation.NonNull;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.View;
 
+import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.util.DirectoryHelper;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
+import org.thoughtcrime.securesms.util.DynamicNoActionBarTheme;
 import org.thoughtcrime.securesms.util.DynamicTheme;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 
-
 import java.util.ArrayList;
 import java.util.List;
-
-import static org.thoughtcrime.securesms.contacts.ContactAccessor.ContactData;
 
 /**
  * Activity container for selecting a list of contacts.
@@ -40,84 +40,28 @@ import static org.thoughtcrime.securesms.contacts.ContactAccessor.ContactData;
  * @author Moxie Marlinspike
  *
  */
-public class PushContactSelectionActivity extends PassphraseRequiredActionBarActivity {
-  private final static String TAG             = "ContactSelectActivity";
-  public  final static String PUSH_ONLY_EXTRA = "push_only";
+public class PushContactSelectionActivity extends ContactSelectionActivity {
 
-  private final DynamicTheme    dynamicTheme    = new DynamicTheme   ();
-  private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
-
-  private PushContactSelectionListFragment contactsFragment;
+  private final static String TAG = PushContactSelectionActivity.class.getSimpleName();
 
   @Override
-  protected void onCreate(Bundle icicle) {
-    dynamicTheme.onCreate(this);
-    dynamicLanguage.onCreate(this);
-    super.onCreate(icicle);
-
-    getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-
-    setContentView(R.layout.push_contact_selection_activity);
-    initializeResources();
-  }
-
-  @Override
-  public void onResume() {
-    super.onResume();
-    dynamicTheme.onResume(this);
-    dynamicLanguage.onResume(this);
-    getSupportActionBar().setTitle(R.string.AndroidManifest__select_contacts);
-  }
-
-  @Override
-  public boolean onPrepareOptionsMenu(Menu menu) {
-    MenuInflater inflater = this.getMenuInflater();
-    menu.clear();
-
-    if (TextSecurePreferences.isPushRegistered(this)) inflater.inflate(R.menu.push_directory, menu);
-
-    inflater.inflate(R.menu.contact_selection, menu);
-    return true;
-  }
-
-  @Override
-  public boolean onOptionsItemSelected(MenuItem item) {
-    super.onOptionsItemSelected(item);
-    switch (item.getItemId()) {
-    case R.id.menu_refresh_directory:  handleDirectoryRefresh();  return true;
-    case R.id.menu_selection_finished: handleSelectionFinished(); return true;
-    case android.R.id.home:            finish();                  return true;
-    }
-    return false;
-  }
-
-  private void initializeResources() {
-    contactsFragment = (PushContactSelectionListFragment) getSupportFragmentManager().findFragmentById(R.id.contact_selection_list_fragment);
+  protected void onCreate(Bundle icicle, @NonNull MasterSecret masterSecret) {
+    super.onCreate(icicle, masterSecret);
     contactsFragment.setMultiSelect(true);
-    contactsFragment.setOnContactSelectedListener(new PushContactSelectionListFragment.OnContactSelectedListener() {
+
+    action.setImageDrawable(getResources().getDrawable(R.drawable.ic_check_white_24dp));
+    action.setOnClickListener(new View.OnClickListener() {
       @Override
-      public void onContactSelected(ContactData contactData) {
-        Log.i(TAG, "Choosing contact from list.");
-      }
-    });
-  }
+      public void onClick(View v) {
+        Intent       resultIntent     = getIntent();
+        List<String> selectedContacts = contactsFragment.getSelectedContacts();
 
-  private void handleSelectionFinished() {
+        if (selectedContacts != null) {
+          resultIntent.putStringArrayListExtra("contacts", new ArrayList<>(selectedContacts));
+        }
 
-    final Intent resultIntent = getIntent();
-    final List<ContactData> selectedContacts = contactsFragment.getSelectedContacts();
-    if (selectedContacts != null) {
-      resultIntent.putParcelableArrayListExtra("contacts", new ArrayList<ContactData>(contactsFragment.getSelectedContacts()));
-    }
-    setResult(RESULT_OK, resultIntent);
-    finish();
-  }
-
-  private void handleDirectoryRefresh() {
-    DirectoryHelper.refreshDirectoryWithProgressDialog(this, new DirectoryHelper.DirectoryUpdateFinishedListener() {
-      @Override
-      public void onUpdateFinished() {
-        contactsFragment.update();
+        setResult(RESULT_OK, resultIntent);
+        finish();
       }
     });
   }

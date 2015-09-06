@@ -16,46 +16,54 @@
  */
 package org.thoughtcrime.securesms;
 
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.TypedArray;
 import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.net.Uri;
-import android.os.Handler;
-import android.os.Message;
-import android.provider.Contacts.Intents;
-import android.provider.ContactsContract.QuickContact;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.support.annotation.NonNull;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.afollestad.materialdialogs.AlertDialogWrapper;
+
+import org.thoughtcrime.securesms.ConversationFragment.SelectionClickListener;
+import org.thoughtcrime.securesms.components.AvatarImageView;
+import org.thoughtcrime.securesms.components.ThumbnailView;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.MmsDatabase;
+import org.thoughtcrime.securesms.database.MmsSmsDatabase;
+import org.thoughtcrime.securesms.database.PartDatabase;
 import org.thoughtcrime.securesms.database.SmsDatabase;
+import org.thoughtcrime.securesms.database.documents.IdentityKeyMismatch;
 import org.thoughtcrime.securesms.database.model.MediaMmsMessageRecord;
 import org.thoughtcrime.securesms.database.model.MessageRecord;
 import org.thoughtcrime.securesms.database.model.NotificationMmsMessageRecord;
 import org.thoughtcrime.securesms.jobs.MmsDownloadJob;
 import org.thoughtcrime.securesms.jobs.MmsSendJob;
 import org.thoughtcrime.securesms.jobs.SmsSendJob;
+import org.thoughtcrime.securesms.mms.PartAuthority;
 import org.thoughtcrime.securesms.mms.Slide;
-import org.thoughtcrime.securesms.mms.SlideDeck;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.util.DateUtils;
-import org.thoughtcrime.securesms.util.Dialogs;
-import org.thoughtcrime.securesms.util.Emoji;
-import org.thoughtcrime.securesms.util.FutureTaskListener;
-import org.thoughtcrime.securesms.util.ListenableFutureTask;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * A view that displays an individual conversation item within a conversation
@@ -65,59 +73,44 @@ import org.thoughtcrime.securesms.util.ListenableFutureTask;
  *
  */
 
-public class ConversationItem extends LinearLayout {
+public class ConversationItem extends LinearLayout implements Recipient.RecipientModifiedListener {
   private final static String TAG = ConversationItem.class.getSimpleName();
 
-  private final int    STYLE_ATTRIBUTES[] = new int[]{R.attr.conversation_item_sent_push_background,
-                                                      R.attr.conversation_item_sent_push_triangle_background,
-                                                      R.attr.conversation_item_sent_background,
-                                                      R.attr.conversation_item_sent_triangle_background,
-                                                      R.attr.conversation_item_sent_pending_background,
-                                                      R.attr.conversation_item_sent_pending_triangle_background,
-                                                      R.attr.conversation_item_sent_push_pending_background,
-                                                      R.attr.conversation_item_sent_push_pending_triangle_background};
-
-  private final static int SENT_PUSH = 0;
-  private final static int SENT_PUSH_TRIANGLE = 1;
-  private final static int SENT_SMS = 2;
-  private final static int SENT_SMS_TRIANGLE = 3;
-  private final static int SENT_SMS_PENDING = 4;
-  private final static int SENT_SMS_PENDING_TRIANGLE = 5;
-  private final static int SENT_PUSH_PENDING = 6;
-  private final static int SENT_PUSH_PENDING_TRIANGLE = 7;
-
-  private Handler       failedIconHandler;
   private MessageRecord messageRecord;
   private MasterSecret  masterSecret;
+  private Locale        locale;
   private boolean       groupThread;
   private boolean       pushDestination;
+  private Recipient     recipient;
 
-  private  View      conversationParent;
-  private  TextView  bodyText;
-  private  TextView  dateText;
-  private  TextView  indicatorText;
-  private  TextView  groupStatusText;
-  private  ImageView secureImage;
-  private  ImageView failedImage;
-  private  ImageView contactPhoto;
-  private  ImageView deliveredImage;
-  private  View      triangleTick;
-  private  ImageView pendingIndicator;
+  private View            bodyBubble;
+  private TextView        bodyText;
+  private TextView        dateText;
+  private TextView        indicatorText;
+  private TextView        groupStatusText;
+  private ImageView       secureImage;
+  private AvatarImageView contactPhoto;
+  private ImageView       failedIndicator;
+  private ImageView       deliveredIndicator;
+  private ImageView       sentIndicator;
+  private View            pendingIndicator;
+  private ImageView       pendingApprovalIndicator;
 
-  private  View      mmsContainer;
-  private  ImageView mmsThumbnail;
-  private  Button    mmsDownloadButton;
-  private  TextView  mmsDownloadingLabel;
-  private  ListenableFutureTask<SlideDeck> slideDeck;
-  private  FutureTaskListener<SlideDeck> slideDeckListener;
-  private  TypedArray backgroundDrawables;
+  private StatusManager          statusManager;
+  private Set<MessageRecord>     batchSelected;
+  private SelectionClickListener selectionClickListener;
+  private ThumbnailView          mediaThumbnail;
+  private Button                 mmsDownloadButton;
+  private TextView               mmsDownloadingLabel;
 
-  private final FailedIconClickListener failedIconClickListener         = new FailedIconClickListener();
-  private final MmsDownloadClickListener mmsDownloadClickListener       = new MmsDownloadClickListener();
+  private int      defaultBubbleColor;
+  private Drawable selectedBackground;
+  private Drawable normalBackground;
+
+  private final MmsDownloadClickListener    mmsDownloadClickListener    = new MmsDownloadClickListener();
   private final MmsPreferencesClickListener mmsPreferencesClickListener = new MmsPreferencesClickListener();
-  private final ClickListener clickListener                             = new ClickListener();
-  private final Handler handler                                         = new Handler();
-  private final Context context;
+  private final ClickListener               clickListener               = new ClickListener();
+  private final Context                     context;
 
   public ConversationItem(Context context) {
     super(context);
@@ -133,179 +126,230 @@ public class ConversationItem extends LinearLayout {
   protected void onFinishInflate() {
     super.onFinishInflate();
 
-    this.bodyText            = (TextView) findViewById(R.id.conversation_item_body);
-    this.dateText            = (TextView) findViewById(R.id.conversation_item_date);
-    this.indicatorText       = (TextView) findViewById(R.id.indicator_text);
-    this.groupStatusText     = (TextView) findViewById(R.id.group_message_status);
-    this.secureImage         = (ImageView)findViewById(R.id.sms_secure_indicator);
-    this.failedImage         = (ImageView)findViewById(R.id.sms_failed_indicator);
-    this.mmsContainer        =            findViewById(R.id.mms_view);
-    this.mmsThumbnail        = (ImageView)findViewById(R.id.image_view);
-    this.mmsDownloadButton   = (Button)   findViewById(R.id.mms_download_button);
-    this.mmsDownloadingLabel = (TextView) findViewById(R.id.mms_label_downloading);
-    this.contactPhoto        = (ImageView)findViewById(R.id.contact_photo);
-    this.deliveredImage      = (ImageView)findViewById(R.id.delivered_indicator);
-    this.conversationParent  =            findViewById(R.id.conversation_item_parent);
-    this.triangleTick        =            findViewById(R.id.triangle_tick);
-    this.pendingIndicator    = (ImageView)findViewById(R.id.pending_approval_indicator);
-    this.backgroundDrawables = context.obtainStyledAttributes(STYLE_ATTRIBUTES);
+    initializeAttributes();
+    ViewGroup pendingIndicatorStub = (ViewGroup) findViewById(R.id.pending_indicator_stub);
+
+    if (pendingIndicatorStub != null) {
+      LayoutInflater inflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+      if (Build.VERSION.SDK_INT >= 11) inflater.inflate(R.layout.conversation_item_pending_v11, pendingIndicatorStub, true);
+      else                             inflater.inflate(R.layout.conversation_item_pending, pendingIndicatorStub, true);
+    }
+
+    this.bodyText                 = (TextView)        findViewById(R.id.conversation_item_body);
+    this.dateText                 = (TextView)        findViewById(R.id.conversation_item_date);
+    this.indicatorText            = (TextView)        findViewById(R.id.indicator_text);
+    this.groupStatusText          = (TextView)        findViewById(R.id.group_message_status);
+    this.secureImage              = (ImageView)       findViewById(R.id.secure_indicator);
+    this.failedIndicator          = (ImageView)       findViewById(R.id.sms_failed_indicator);
+    this.mmsDownloadButton        = (Button)          findViewById(R.id.mms_download_button);
+    this.mmsDownloadingLabel      = (TextView)        findViewById(R.id.mms_label_downloading);
+    this.contactPhoto             = (AvatarImageView) findViewById(R.id.contact_photo);
+    this.deliveredIndicator       = (ImageView)       findViewById(R.id.delivered_indicator);
+    this.sentIndicator            = (ImageView)       findViewById(R.id.sent_indicator);
+    this.bodyBubble               =                   findViewById(R.id.body_bubble);
+    this.pendingApprovalIndicator = (ImageView)       findViewById(R.id.pending_approval_indicator);
+    this.pendingIndicator         =                   findViewById(R.id.pending_indicator);
+    this.mediaThumbnail           = (ThumbnailView)   findViewById(R.id.image_view);
+    this.statusManager            = new StatusManager(pendingIndicator, sentIndicator, deliveredIndicator, failedIndicator, pendingApprovalIndicator);
 
     setOnClickListener(clickListener);
-    if (failedImage != null)       failedImage.setOnClickListener(failedIconClickListener);
     if (mmsDownloadButton != null) mmsDownloadButton.setOnClickListener(mmsDownloadClickListener);
-  }
-
-  public void set(MasterSecret masterSecret, MessageRecord messageRecord,
-                  Handler failedIconHandler, boolean groupThread, boolean pushDestination)
-  {
-
-    this.messageRecord     = messageRecord;
-    this.masterSecret      = masterSecret;
-    this.failedIconHandler = failedIconHandler;
-    this.groupThread       = groupThread;
-    this.pushDestination   = pushDestination;
-
-    setBackgroundDrawables(messageRecord);
-    setBodyText(messageRecord);
-
-    if (!messageRecord.isGroupAction()) {
-      setStatusIcons(messageRecord);
-      setContactPhoto(messageRecord);
-      setGroupMessageStatus(messageRecord);
-      setEvents(messageRecord);
-      setMinimumWidth();
-
-      if (messageRecord.isMmsNotification()) {
-        setNotificationMmsAttributes((NotificationMmsMessageRecord)messageRecord);
-      } else if (messageRecord.isMms()) {
-        setMediaMmsAttributes((MediaMmsMessageRecord)messageRecord);
-      }
+    if (mediaThumbnail != null) {
+      mediaThumbnail.setThumbnailClickListener(new ThumbnailClickListener());
+      mediaThumbnail.setOnLongClickListener(new MultiSelectLongClickListener());
+      mediaThumbnail.setDownloadClickListener(new ThumbnailDownloadClickListener());
     }
   }
 
+  public void set(@NonNull MasterSecret masterSecret,
+                  @NonNull MessageRecord messageRecord,
+                  @NonNull Locale locale,
+                  @NonNull Set<MessageRecord> batchSelected,
+                  @NonNull SelectionClickListener selectionClickListener,
+                  boolean groupThread, boolean pushDestination)
+  {
+    this.masterSecret           = masterSecret;
+    this.messageRecord          = messageRecord;
+    this.locale                 = locale;
+    this.batchSelected          = batchSelected;
+    this.selectionClickListener = selectionClickListener;
+    this.groupThread            = groupThread;
+    this.pushDestination        = pushDestination;
+    this.recipient              = messageRecord.getIndividualRecipient();
+
+    this.recipient.addListener(this);
+
+    setSelectionBackgroundDrawables(messageRecord);
+    setBodyText(messageRecord);
+
+    if (hasConversationBubble(messageRecord)) {
+      setBubbleState(messageRecord, recipient);
+      setStatusIcons(messageRecord);
+      setContactPhoto(recipient);
+      setGroupMessageStatus(messageRecord, recipient);
+      setEvents(messageRecord);
+      setMinimumWidth();
+      setMediaAttributes(messageRecord);
+    }
+  }
+
+  private void initializeAttributes() {
+    final int[]      attributes = new int[] {R.attr.conversation_item_bubble_background,
+                                             R.attr.conversation_list_item_background_selected,
+                                             R.attr.conversation_item_background};
+    final TypedArray attrs      = context.obtainStyledAttributes(attributes);
+
+    defaultBubbleColor = attrs.getColor(0, Color.WHITE);
+    selectedBackground = attrs.getDrawable(1);
+    normalBackground   = attrs.getDrawable(2);
+    attrs.recycle();
+  }
+
   public void unbind() {
-    if (slideDeck != null && slideDeckListener != null)
-      slideDeck.removeListener(slideDeckListener);
+    if (recipient != null) {
+      recipient.removeListener(this);
+    }
   }
 
   public MessageRecord getMessageRecord() {
     return messageRecord;
   }
 
-  public void setHandler(Handler failedIconHandler) {
-    this.failedIconHandler = failedIconHandler;
-  }
-
-  public static void setViewBackgroundWithoutResettingPadding(final View v, final int backgroundResId) {
-    final int paddingBottom = v.getPaddingBottom();
-    final int paddingLeft   = v.getPaddingLeft();
-    final int paddingRight  = v.getPaddingRight();
-    final int paddingTop    = v.getPaddingTop();
-    v.setBackgroundResource(backgroundResId);
-    v.setPadding(paddingLeft, paddingTop, paddingRight, paddingBottom);
-  }
-
   /// MessageRecord Attribute Parsers
 
-  private void setBackgroundDrawables(MessageRecord messageRecord) {
-    if (conversationParent != null && backgroundDrawables != null) {
-      if (messageRecord.isOutgoing()) {
-        final int background;
-        final int triangleBackground;
-        if (messageRecord.isPending() && pushDestination && !messageRecord.isForcedSms()) {
-          background = SENT_PUSH_PENDING;
-          triangleBackground = SENT_PUSH_PENDING_TRIANGLE;
-        } else if (messageRecord.isPending() || messageRecord.isPendingSmsFallback()) {
-          background = SENT_SMS_PENDING;
-          triangleBackground = SENT_SMS_PENDING_TRIANGLE;
-        } else if (messageRecord.isPush()) {
-          background = SENT_PUSH;
-          triangleBackground = SENT_PUSH_TRIANGLE;
-        } else {
-          background = SENT_SMS;
-          triangleBackground = SENT_SMS_TRIANGLE;
-        }
-        setViewBackgroundWithoutResettingPadding(conversationParent, backgroundDrawables.getResourceId(background, -1));
-        setViewBackgroundWithoutResettingPadding(triangleTick, backgroundDrawables.getResourceId(triangleBackground, -1));
-      }
+  private void setBubbleState(MessageRecord messageRecord, Recipient recipient) {
+    if (messageRecord.isOutgoing()) {
+      bodyBubble.getBackground().setColorFilter(defaultBubbleColor, PorterDuff.Mode.MULTIPLY);
+      mediaThumbnail.setBackgroundColorHint(defaultBubbleColor);
+    } else {
+      int color = recipient.getColor().toConversationColor(context);
+      bodyBubble.getBackground().setColorFilter(color, PorterDuff.Mode.MULTIPLY);
+      mediaThumbnail.setBackgroundColorHint(color);
     }
   }
 
-  private void setBodyText(MessageRecord messageRecord) {
-      bodyText.setText(Emoji.getInstance(context).emojify(messageRecord.getDisplayBody(), new Emoji.InvalidatingPageLoadedListener(bodyText)),
-                       TextView.BufferType.SPANNABLE);
+  private void setSelectionBackgroundDrawables(MessageRecord messageRecord) {
+    if (batchSelected.contains(messageRecord)) {
+      setBackgroundDrawable(selectedBackground);
+    } else {
+      setBackgroundDrawable(normalBackground);
+    }
   }
 
-  private void setContactPhoto(MessageRecord messageRecord) {
+  private boolean hasConversationBubble(MessageRecord messageRecord) {
+    return !messageRecord.isGroupAction();
+  }
+
+  private boolean isCaptionlessMms(MessageRecord messageRecord) {
+    return TextUtils.isEmpty(messageRecord.getDisplayBody()) && messageRecord.isMms();
+  }
+
+  private boolean hasMedia(MessageRecord messageRecord) {
+    return messageRecord.isMms()              &&
+           !messageRecord.isMmsNotification() &&
+           ((MediaMmsMessageRecord)messageRecord).getPartCount() > 0;
+  }
+
+  private void setBodyText(MessageRecord messageRecord) {
+    bodyText.setClickable(false);
+    bodyText.setFocusable(false);
+
+    if (isCaptionlessMms(messageRecord)) {
+      bodyText.setVisibility(View.GONE);
+    } else {
+      bodyText.setText(messageRecord.getDisplayBody());
+      bodyText.setVisibility(View.VISIBLE);
+    }
+
+    if (bodyText.isClickable() && bodyText.isFocusable()) {
+      bodyText.setOnLongClickListener(new MultiSelectLongClickListener());
+      bodyText.setOnClickListener(new MultiSelectLongClickListener());
+    }
+  }
+
+  private void setMediaAttributes(MessageRecord messageRecord) {
+    if (messageRecord.isMmsNotification()) {
+      mediaThumbnail.setVisibility(View.GONE);
+      bodyText.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+      setNotificationMmsAttributes((NotificationMmsMessageRecord) messageRecord);
+    } else if (hasMedia(messageRecord)) {
+      mediaThumbnail.setVisibility(View.VISIBLE);
+      mediaThumbnail.setImageResource(masterSecret, messageRecord.getId(),
+                                      messageRecord.getDateReceived(),
+                                      ((MediaMmsMessageRecord)messageRecord).getSlideDeckFuture());
+      mediaThumbnail.hideControls(messageRecord.isFailed() || (messageRecord.isOutgoing() && !messageRecord.isPending()));
+      bodyText.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+    } else {
+      mediaThumbnail.setVisibility(View.GONE);
+      bodyText.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+  }
+
+  private void setContactPhoto(Recipient recipient) {
     if (! messageRecord.isOutgoing()) {
-      setContactPhotoForRecipient(messageRecord.getIndividualRecipient());
+      setContactPhotoForRecipient(recipient);
     }
   }
 
   private void setStatusIcons(MessageRecord messageRecord) {
-    failedImage.setVisibility(messageRecord.isFailed() ? View.VISIBLE : View.GONE);
-    if (messageRecord.isOutgoing()) {
-      pendingIndicator.setVisibility(messageRecord.isPendingSmsFallback() ? View.VISIBLE : View.GONE);
-      indicatorText.setVisibility(messageRecord.isPendingSmsFallback() ? View.VISIBLE : View.GONE);
-    }
-    secureImage.setVisibility(messageRecord.isSecure() ? View.VISIBLE : View.GONE);
-    bodyText.setCompoundDrawablesWithIntrinsicBounds(0, 0, messageRecord.isKeyExchange() ? R.drawable.ic_menu_login : 0, 0);
-    deliveredImage.setVisibility(!messageRecord.isKeyExchange() && messageRecord.isDelivered() ? View.VISIBLE : View.GONE);
-
-    mmsThumbnail.setVisibility(View.GONE);
     mmsDownloadButton.setVisibility(View.GONE);
     mmsDownloadingLabel.setVisibility(View.GONE);
+    indicatorText.setVisibility(View.GONE);
 
-    if (messageRecord.isFailed()) {
-      dateText.setText(R.string.ConversationItem_error_sending_message);
-    } else if (messageRecord.isPendingSmsFallback() && indicatorText != null) {
-      dateText.setText("");
-      if (messageRecord.isPendingSecureSmsFallback()) {
-        if (messageRecord.isMms()) indicatorText.setText(R.string.ConversationItem_click_to_approve_mms);
-        else                       indicatorText.setText(R.string.ConversationItem_click_to_approve_sms);
-      } else {
-        indicatorText.setText(R.string.ConversationItem_click_to_approve_unencrypted);
-      }
-    } else if (messageRecord.isPending()) {
-      dateText.setText(" ··· ");
-    } else {
-      final long timestamp;
+    secureImage.setVisibility(messageRecord.isSecure() ? View.VISIBLE : View.GONE);
+    bodyText.setCompoundDrawablesWithIntrinsicBounds(0, 0, messageRecord.isKeyExchange() ? R.drawable.ic_menu_login : 0, 0);
 
-      if (messageRecord.isPush()) timestamp = messageRecord.getDateSent();
-      else                        timestamp = messageRecord.getDateReceived();
+    final long timestamp;
 
-      dateText.setText(DateUtils.getBetterRelativeTimeSpanString(getContext(), timestamp));
+    if (messageRecord.isPush()) timestamp = messageRecord.getDateSent();
+    else                        timestamp = messageRecord.getDateReceived();
+
+    dateText.setText(DateUtils.getExtendedRelativeTimeSpanString(getContext(), locale, timestamp));
+
+    if      (messageRecord.isFailed())                     setFailedStatusIcons();
+    else if (messageRecord.isPendingInsecureSmsFallback()) setFallbackStatusIcons();
+    else if (messageRecord.isPending())                    statusManager.displayPending();
+    else if (messageRecord.isDelivered())                  statusManager.displayDelivered();
+    else                                                   statusManager.displaySent();
+  }
+
+  private void setFailedStatusIcons() {
+    statusManager.displayFailed();
+    dateText.setText(R.string.ConversationItem_error_not_delivered);
+    if (indicatorText != null) {
+      indicatorText.setText(R.string.ConversationItem_click_for_details);
+      indicatorText.setVisibility(View.VISIBLE);
     }
+  }
+
+  private void setFallbackStatusIcons() {
+    statusManager.displayPendingApproval();
+    indicatorText.setVisibility(View.VISIBLE);
+    indicatorText.setText(R.string.ConversationItem_click_to_approve_unencrypted);
   }
 
   private void setMinimumWidth() {
     if (indicatorText != null && indicatorText.getVisibility() == View.VISIBLE && indicatorText.getText() != null) {
       final float density = getResources().getDisplayMetrics().density;
-      conversationParent.setMinimumWidth(indicatorText.getText().length() * (int)(6.5 * density));
+      bodyBubble.setMinimumWidth(indicatorText.getText().length() * (int) (6.5 * density) + (int) (22.0 * density));
     } else {
-      conversationParent.setMinimumWidth(0);
+      bodyBubble.setMinimumWidth(0);
     }
   }
 
   private void setEvents(MessageRecord messageRecord) {
-    setClickable(messageRecord.isPendingSmsFallback() ||
-                 (messageRecord.isKeyExchange()            &&
-                  !messageRecord.isCorruptedKeyExchange()  &&
-                  !messageRecord.isOutgoing()));
-
-    if (!messageRecord.isOutgoing()                       &&
-        messageRecord.getRecipients().isSingleRecipient() &&
-        !messageRecord.isSecure())
-    {
-      checkForAutoInitiate(messageRecord.getIndividualRecipient(),
-                           messageRecord.getBody().getBody(),
-                           messageRecord.getThreadId());
+    setClickable(batchSelected.isEmpty() &&
+                 (messageRecord.isFailed()                     ||
+                  messageRecord.isPendingInsecureSmsFallback() ||
+                  messageRecord.isBundleKeyExchange()));
+    if (messageRecord.isFailed()) {
+      setOnLongClickListener(new MultiSelectLongClickListener());
     }
   }
 
-  private void setGroupMessageStatus(MessageRecord messageRecord) {
+  private void setGroupMessageStatus(MessageRecord messageRecord, Recipient recipient) {
     if (groupThread && !messageRecord.isOutgoing()) {
-      this.groupStatusText.setText(messageRecord.getIndividualRecipient().toShortString());
+      this.groupStatusText.setText(recipient.toShortString());
       this.groupStatusText.setVisibility(View.VISIBLE);
     } else {
       this.groupStatusText.setVisibility(View.GONE);
@@ -337,120 +381,47 @@ public class ConversationItem extends LinearLayout {
     }
   }
 
-  private void setMediaMmsAttributes(MediaMmsMessageRecord messageRecord) {
-    if (messageRecord.getPartCount() > 0) {
-      mmsThumbnail.setVisibility(View.VISIBLE);
-      mmsContainer.setVisibility(View.VISIBLE);
-      mmsThumbnail.setImageDrawable(new ColorDrawable(Color.TRANSPARENT));
-    } else {
-      mmsThumbnail.setVisibility(View.GONE);
-      mmsContainer.setVisibility(View.GONE);
-    }
-
-    slideDeck = messageRecord.getSlideDeckFuture();
-    slideDeckListener = new FutureTaskListener<SlideDeck>() {
-      @Override
-      public void onSuccess(final SlideDeck result) {
-        if (result == null)
-          return;
-
-        handler.post(new Runnable() {
-          @Override
-          public void run() {
-            for (Slide slide : result.getSlides()) {
-              if (slide.hasImage()) {
-                slide.setThumbnailOn(mmsThumbnail);
-                mmsThumbnail.setOnClickListener(new ThumbnailClickListener(slide));
-                mmsThumbnail.setOnLongClickListener(new OnLongClickListener() {
-                  @Override
-                  public boolean onLongClick(View v) {
-                    return false;
-                  }
-                });
-                mmsThumbnail.setVisibility(View.VISIBLE);
-                return;
-              }
-            }
-
-            mmsThumbnail.setVisibility(View.GONE);
-          }
-        });
-      }
-
-      @Override
-      public void onFailure(Throwable error) {}
-    };
-    slideDeck.addListener(slideDeckListener);
-  }
-
   /// Helper Methods
-
-  private void checkForAutoInitiate(Recipient recipient, String body, long threadId) {
-    if (!groupThread &&
-        AutoInitiateActivity.isValidAutoInitiateSituation(context, masterSecret, recipient,
-                                                          body, threadId))
-    {
-      AutoInitiateActivity.exemptThread(context, threadId);
-
-      Intent intent = new Intent();
-      intent.setClass(context, AutoInitiateActivity.class);
-      intent.putExtra("threadId", threadId);
-      intent.putExtra("masterSecret", masterSecret);
-      intent.putExtra("recipient", recipient);
-
-      context.startActivity(intent);
-    }
-  }
 
   private void setContactPhotoForRecipient(final Recipient recipient) {
     if (contactPhoto == null) return;
 
-    contactPhoto.setImageBitmap(recipient.getCircleCroppedContactPhoto());
-
-    contactPhoto.setOnClickListener(new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        if (recipient.getContactUri() != null) {
-          QuickContact.showQuickContact(context, contactPhoto, recipient.getContactUri(), QuickContact.MODE_LARGE, null);
-        } else {
-          Intent intent = new Intent(Intents.SHOW_OR_CREATE_CONTACT, Uri.fromParts("tel", recipient.getNumber(), null));
-          context.startActivity(intent);
-        }
-      }
-    });
-
+    contactPhoto.setAvatar(recipient, true);
     contactPhoto.setVisibility(View.VISIBLE);
   }
 
   /// Event handlers
 
-  private void handleKeyExchangeClicked() {
-    Intent intent = new Intent(context, ReceiveKeyActivity.class);
-    intent.putExtra("recipient", messageRecord.getIndividualRecipient());
-    intent.putExtra("recipient_device_id", messageRecord.getRecipientDeviceId());
-    intent.putExtra("body", messageRecord.getBody().getBody());
-    intent.putExtra("thread_id", messageRecord.getThreadId());
-    intent.putExtra("message_id", messageRecord.getId());
-    intent.putExtra("is_bundle", messageRecord.isBundleKeyExchange());
-    intent.putExtra("is_identity_update", messageRecord.isIdentityUpdate());
-    intent.putExtra("is_push", messageRecord.isPush());
-    intent.putExtra("master_secret", masterSecret);
-    intent.putExtra("sent", messageRecord.isOutgoing());
-    context.startActivity(intent);
-  }
+  private void handleApproveIdentity() {
+    List<IdentityKeyMismatch> mismatches = messageRecord.getIdentityKeyMismatches();
 
-  private class ThumbnailClickListener implements View.OnClickListener {
-    private final Slide slide;
-
-    public ThumbnailClickListener(Slide slide) {
-      this.slide = slide;
+    if (mismatches.size() != 1) {
+      throw new AssertionError("Identity mismatch count: " + mismatches.size());
     }
 
-    private void fireIntent() {
+    new ConfirmIdentityDialog(context, masterSecret, messageRecord, mismatches.get(0)).show();
+  }
+
+  @Override
+  public void onModified(Recipient recipient) {
+    if (hasConversationBubble(messageRecord)) {
+      setBubbleState(messageRecord, recipient);
+      setContactPhoto(recipient);
+      setGroupMessageStatus(messageRecord, recipient);
+    }
+  }
+
+  private class ThumbnailDownloadClickListener implements ThumbnailView.ThumbnailClickListener {
+    @Override public void onClick(View v, Slide slide) {
+      DatabaseFactory.getPartDatabase(context).setTransferState(messageRecord.getId(), slide.getPart().getPartId(), PartDatabase.TRANSFER_PROGRESS_STARTED);
+    }
+  }
+  private class ThumbnailClickListener implements ThumbnailView.ThumbnailClickListener {
+    private void fireIntent(Slide slide) {
       Log.w(TAG, "Clicked: " + slide.getUri() + " , " + slide.getContentType());
       Intent intent = new Intent(Intent.ACTION_VIEW);
       intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-      intent.setDataAndType(slide.getUri(), slide.getContentType());
+      intent.setDataAndType(PartAuthority.getPublicPartUri(slide.getUri()), slide.getContentType());
       try {
         context.startActivity(intent);
       } catch (ActivityNotFoundException anfe) {
@@ -459,24 +430,28 @@ public class ConversationItem extends LinearLayout {
       }
     }
 
-    public void onClick(View v) {
-      if (MediaPreviewActivity.isContentTypeSupported(slide.getContentType())) {
+    public void onClick(final View v, final Slide slide) {
+      if (!batchSelected.isEmpty()) {
+        selectionClickListener.onItemClick(null, ConversationItem.this, -1, -1);
+      } else if (MediaPreviewActivity.isContentTypeSupported(slide.getContentType()) &&
+                 slide.getThumbnailUri() != null)
+      {
         Intent intent = new Intent(context, MediaPreviewActivity.class);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.setDataAndType(slide.getUri(), slide.getContentType());
-        intent.putExtra(MediaPreviewActivity.MASTER_SECRET_EXTRA, masterSecret);
-        if (!messageRecord.isOutgoing()) intent.putExtra(MediaPreviewActivity.RECIPIENT_EXTRA, messageRecord.getIndividualRecipient());
+        if (!messageRecord.isOutgoing()) intent.putExtra(MediaPreviewActivity.RECIPIENT_EXTRA, recipient.getRecipientId());
         intent.putExtra(MediaPreviewActivity.DATE_EXTRA, messageRecord.getDateReceived());
+
         context.startActivity(intent);
       } else {
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        AlertDialogWrapper.Builder builder = new AlertDialogWrapper.Builder(context);
         builder.setTitle(R.string.ConversationItem_view_secure_media_question);
-        builder.setIcon(Dialogs.resolveIcon(context, R.attr.dialog_alert_icon));
+        builder.setIconAttribute(R.attr.dialog_alert_icon);
         builder.setCancelable(true);
         builder.setMessage(R.string.ConversationItem_this_media_has_been_stored_in_an_encrypted_database_external_viewer_warning);
         builder.setPositiveButton(R.string.yes, new DialogInterface.OnClickListener() {
           public void onClick(DialogInterface dialog, int which) {
-            fireIntent();
+            fireIntent(slide);
           }
         });
         builder.setNegativeButton(R.string.no, null);
@@ -488,7 +463,7 @@ public class ConversationItem extends LinearLayout {
   private class MmsDownloadClickListener implements View.OnClickListener {
     public void onClick(View v) {
       NotificationMmsMessageRecord notificationRecord = (NotificationMmsMessageRecord)messageRecord;
-      Log.w("MmsDownloadClickListener", "Content location: " + new String(notificationRecord.getContentLocation()));
+      Log.w(TAG, "Content location: " + new String(notificationRecord.getContentLocation()));
       mmsDownloadButton.setVisibility(View.GONE);
       mmsDownloadingLabel.setVisibility(View.VISIBLE);
 
@@ -509,25 +484,35 @@ public class ConversationItem extends LinearLayout {
     }
   }
 
-  private class FailedIconClickListener implements View.OnClickListener {
+  private class ClickListener implements View.OnClickListener {
     public void onClick(View v) {
-      if (failedIconHandler != null && !messageRecord.isKeyExchange()) {
-        Message message = Message.obtain();
-        message.obj     = messageRecord.getBody().getBody();
-        failedIconHandler.dispatchMessage(message);
+      if (messageRecord.isFailed() && !batchSelected.isEmpty()) {
+        selectionClickListener.onItemClick(null, ConversationItem.this, -1, -1);
+      } else if(messageRecord.isFailed()) {
+        Intent intent = new Intent(context, MessageDetailsActivity.class);
+        intent.putExtra(MessageDetailsActivity.MASTER_SECRET_EXTRA, masterSecret);
+        intent.putExtra(MessageDetailsActivity.MESSAGE_ID_EXTRA, messageRecord.getId());
+        intent.putExtra(MessageDetailsActivity.TYPE_EXTRA, messageRecord.isMms() ? MmsSmsDatabase.MMS_TRANSPORT : MmsSmsDatabase.SMS_TRANSPORT);
+        intent.putExtra(MessageDetailsActivity.IS_PUSH_GROUP_EXTRA, groupThread && pushDestination);
+        context.startActivity(intent);
+      } else if (!messageRecord.isOutgoing() && messageRecord.isIdentityMismatchFailure()) {
+        handleApproveIdentity();
+      } else if (messageRecord.isPendingInsecureSmsFallback()) {
+        handleMessageApproval();
       }
     }
   }
 
-  private class ClickListener implements View.OnClickListener {
-    public void onClick(View v) {
-      if (messageRecord.isKeyExchange()           &&
-          !messageRecord.isOutgoing()             &&
-          !messageRecord.isProcessedKeyExchange() &&
-          !messageRecord.isStaleKeyExchange())
-        handleKeyExchangeClicked();
-      else if (messageRecord.isPendingSmsFallback())
-        handleMessageApproval();
+  private class MultiSelectLongClickListener implements OnLongClickListener, OnClickListener {
+    @Override
+    public boolean onLongClick(View view) {
+      selectionClickListener.onItemLongClick(null, ConversationItem.this, -1, -1);
+      return true;
+    }
+
+    @Override
+    public void onClick(View view) {
+      selectionClickListener.onItemClick(null, ConversationItem.this, -1, -1);
     }
   }
 
@@ -535,19 +520,12 @@ public class ConversationItem extends LinearLayout {
     final int title;
     final int message;
 
-    if (messageRecord.isPendingSecureSmsFallback()) {
-      if (messageRecord.isMms()) title = R.string.ConversationItem_click_to_approve_mms_dialog_title;
-      else                       title = R.string.ConversationItem_click_to_approve_sms_dialog_title;
+    if (messageRecord.isMms()) title = R.string.ConversationItem_click_to_approve_unencrypted_mms_dialog_title;
+    else                       title = R.string.ConversationItem_click_to_approve_unencrypted_sms_dialog_title;
 
-      message = -1;
-    } else {
-      if (messageRecord.isMms()) title = R.string.ConversationItem_click_to_approve_unencrypted_mms_dialog_title;
-      else                       title = R.string.ConversationItem_click_to_approve_unencrypted_sms_dialog_title;
+    message = R.string.ConversationItem_click_to_approve_unencrypted_dialog_message;
 
-      message = R.string.ConversationItem_click_to_approve_unencrypted_dialog_message;
-    }
-
-    AlertDialog.Builder builder = new AlertDialog.Builder(context);
+    AlertDialogWrapper.Builder builder = new AlertDialogWrapper.Builder(context);
     builder.setTitle(title);
 
     if (message > -1) builder.setMessage(message);
@@ -557,9 +535,7 @@ public class ConversationItem extends LinearLayout {
       public void onClick(DialogInterface dialogInterface, int i) {
         if (messageRecord.isMms()) {
           MmsDatabase database = DatabaseFactory.getMmsDatabase(context);
-          if (messageRecord.isPendingInsecureSmsFallback()) {
-            database.markAsInsecure(messageRecord.getId());
-          }
+          database.markAsInsecure(messageRecord.getId());
           database.markAsOutbox(messageRecord.getId());
           database.markAsForcedSms(messageRecord.getId());
 
@@ -568,9 +544,7 @@ public class ConversationItem extends LinearLayout {
                             .add(new MmsSendJob(context, messageRecord.getId()));
         } else {
           SmsDatabase database = DatabaseFactory.getSmsDatabase(context);
-          if (messageRecord.isPendingInsecureSmsFallback()) {
-            database.markAsInsecure(messageRecord.getId());
-          }
+          database.markAsInsecure(messageRecord.getId());
           database.markAsOutbox(messageRecord.getId());
           database.markAsForcedSms(messageRecord.getId());
 
@@ -594,4 +568,73 @@ public class ConversationItem extends LinearLayout {
     });
     builder.show();
   }
+
+  private static class StatusManager {
+
+    private final View pendingIndicator;
+    private final View sentIndicator;
+    private final View deliveredIndicator;
+
+    private final View failedIndicator;
+    private final View approvalIndicator;
+
+
+    public StatusManager(View pendingIndicator, View sentIndicator,
+                         View deliveredIndicator, View failedIndicator,
+                         View approvalIndicator)
+    {
+      this.pendingIndicator   = pendingIndicator;
+      this.sentIndicator      = sentIndicator;
+      this.deliveredIndicator = deliveredIndicator;
+      this.failedIndicator    = failedIndicator;
+      this.approvalIndicator  = approvalIndicator;
+    }
+
+    public void displayFailed() {
+      pendingIndicator.setVisibility(View.GONE);
+      sentIndicator.setVisibility(View.GONE);
+      deliveredIndicator.setVisibility(View.GONE);
+      approvalIndicator.setVisibility(View.GONE);
+
+      failedIndicator.setVisibility(View.VISIBLE);
+    }
+
+    public void displayPendingApproval() {
+      pendingIndicator.setVisibility(View.GONE);
+      sentIndicator.setVisibility(View.GONE);
+      deliveredIndicator.setVisibility(View.GONE);
+      failedIndicator.setVisibility(View.GONE);
+
+      approvalIndicator.setVisibility(View.VISIBLE);
+    }
+
+    public void displayPending() {
+      sentIndicator.setVisibility(View.GONE);
+      deliveredIndicator.setVisibility(View.GONE);
+      failedIndicator.setVisibility(View.GONE);
+      approvalIndicator.setVisibility(View.GONE);
+
+      pendingIndicator.setVisibility(View.VISIBLE);
+    }
+
+    public void displaySent() {
+      pendingIndicator.setVisibility(View.GONE);
+      deliveredIndicator.setVisibility(View.GONE);
+      failedIndicator.setVisibility(View.GONE);
+      approvalIndicator.setVisibility(View.GONE);
+
+      sentIndicator.setVisibility(View.VISIBLE);
+    }
+
+    public void displayDelivered() {
+      pendingIndicator.setVisibility(View.GONE);
+      failedIndicator.setVisibility(View.GONE);
+      approvalIndicator.setVisibility(View.GONE);
+      sentIndicator.setVisibility(View.GONE);
+
+      deliveredIndicator.setVisibility(View.VISIBLE);
+    }
+
+  }
+
 }

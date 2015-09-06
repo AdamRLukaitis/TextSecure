@@ -18,7 +18,6 @@ package org.thoughtcrime.securesms;
 
 import android.content.Context;
 import android.database.Cursor;
-import android.os.Handler;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,7 +34,12 @@ import org.thoughtcrime.securesms.util.LRUCache;
 
 import java.lang.ref.SoftReference;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+
+import org.thoughtcrime.securesms.ConversationFragment.SelectionClickListener;
 
 /**
  * A cursor adapter for a conversation thread.  Ultimately
@@ -55,20 +59,25 @@ public class ConversationAdapter extends CursorAdapter implements AbsListView.Re
   public static final int MESSAGE_TYPE_INCOMING = 1;
   public static final int MESSAGE_TYPE_GROUP_ACTION = 2;
 
-  private final Handler failedIconClickHandler;
-  private final Context context;
-  private final MasterSecret masterSecret;
-  private final boolean groupThread;
-  private final boolean pushDestination;
-  private final LayoutInflater inflater;
+  private final Set<MessageRecord> batchSelected = Collections.synchronizedSet(new HashSet<MessageRecord>());
 
-  public ConversationAdapter(Context context, MasterSecret masterSecret,
-                             Handler failedIconClickHandler, boolean groupThread, boolean pushDestination)
+  private final SelectionClickListener selectionClickListener;
+  private final Context                context;
+  private final MasterSecret           masterSecret;
+  private final Locale                 locale;
+  private final boolean                groupThread;
+  private final boolean                pushDestination;
+  private final LayoutInflater         inflater;
+
+  public ConversationAdapter(Context context, MasterSecret masterSecret, Locale locale,
+                             SelectionClickListener selectionClickListener, boolean groupThread,
+                             boolean pushDestination)
   {
-    super(context, null, true);
+    super(context, null, 0);
     this.context                = context;
     this.masterSecret           = masterSecret;
-    this.failedIconClickHandler = failedIconClickHandler;
+    this.locale                 = locale;
+    this.selectionClickListener = selectionClickListener;
     this.groupThread            = groupThread;
     this.pushDestination        = pushDestination;
     this.inflater               = LayoutInflater.from(context);
@@ -81,7 +90,14 @@ public class ConversationAdapter extends CursorAdapter implements AbsListView.Re
     String type                 = cursor.getString(cursor.getColumnIndexOrThrow(MmsSmsDatabase.TRANSPORT));
     MessageRecord messageRecord = getMessageRecord(id, cursor, type);
 
-    item.set(masterSecret, messageRecord, failedIconClickHandler, groupThread, pushDestination);
+    item.set(masterSecret, messageRecord, locale, batchSelected, selectionClickListener,
+             groupThread, pushDestination);
+  }
+
+  @Override
+  public void changeCursor(Cursor cursor) {
+    messageRecordCache.clear();
+    super.changeCursor(cursor);
   }
 
   @Override
@@ -103,7 +119,6 @@ public class ConversationAdapter extends CursorAdapter implements AbsListView.Re
       default: throw new IllegalArgumentException("unsupported item view type given to ConversationAdapter");
     }
 
-    bindView(view, context, cursor);
     return view;
   }
 
@@ -143,19 +158,25 @@ public class ConversationAdapter extends CursorAdapter implements AbsListView.Re
 
     MessageRecord messageRecord = reader.getCurrent();
 
-    messageRecordCache.put(type + messageId, new SoftReference<MessageRecord>(messageRecord));
+    messageRecordCache.put(type + messageId, new SoftReference<>(messageRecord));
 
     return messageRecord;
   }
 
-  @Override
-  protected void onContentChanged() {
-    super.onContentChanged();
-    messageRecordCache.clear();
-  }
-
   public void close() {
     this.getCursor().close();
+  }
+
+  public void toggleBatchSelected(MessageRecord messageRecord) {
+    if (batchSelected.contains(messageRecord)) {
+      batchSelected.remove(messageRecord);
+    } else {
+      batchSelected.add(messageRecord);
+    }
+  }
+
+  public Set<MessageRecord> getBatchSelected() {
+    return batchSelected;
   }
 
   @Override

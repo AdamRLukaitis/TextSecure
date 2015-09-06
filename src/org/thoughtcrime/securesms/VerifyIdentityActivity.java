@@ -18,6 +18,7 @@
 package org.thoughtcrime.securesms;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -26,13 +27,12 @@ import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.storage.TextSecureSessionStore;
 import org.thoughtcrime.securesms.recipients.Recipient;
-import org.thoughtcrime.securesms.util.DynamicLanguage;
-import org.thoughtcrime.securesms.util.DynamicTheme;
-import org.thoughtcrime.securesms.util.MemoryCleaner;
+import org.thoughtcrime.securesms.recipients.RecipientFactory;
+import org.whispersystems.libaxolotl.AxolotlAddress;
 import org.whispersystems.libaxolotl.IdentityKey;
 import org.whispersystems.libaxolotl.state.SessionRecord;
 import org.whispersystems.libaxolotl.state.SessionStore;
-import org.whispersystems.textsecure.api.push.PushAddress;
+import org.whispersystems.textsecure.api.push.TextSecureAddress;
 
 /**
  * Activity for verifying identity keys.
@@ -47,14 +47,9 @@ public class VerifyIdentityActivity extends KeyScanningActivity {
   private TextView localIdentityFingerprint;
   private TextView remoteIdentityFingerprint;
 
-  private final DynamicTheme    dynamicTheme    = new DynamicTheme   ();
-  private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
-
   @Override
-  public void onCreate(Bundle state) {
-    dynamicTheme.onCreate(this);
-    dynamicLanguage.onCreate(this);
-    super.onCreate(state);
+  protected void onCreate(Bundle state, @NonNull MasterSecret masterSecret) {
+    this.masterSecret = masterSecret;
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
     setContentView(R.layout.verify_identity_activity);
 
@@ -65,16 +60,8 @@ public class VerifyIdentityActivity extends KeyScanningActivity {
   @Override
   public void onResume() {
     super.onResume();
-    dynamicTheme.onResume(this);
-    dynamicLanguage.onResume(this);
     getSupportActionBar().setTitle(R.string.AndroidManifest__verify_identity);
 
-  }
-
-  @Override
-  protected void onDestroy() {
-    MemoryCleaner.clean(masterSecret);
-    super.onDestroy();
   }
 
   private void initializeLocalIdentityKey() {
@@ -113,8 +100,7 @@ public class VerifyIdentityActivity extends KeyScanningActivity {
   private void initializeResources() {
     this.localIdentityFingerprint  = (TextView)findViewById(R.id.you_read);
     this.remoteIdentityFingerprint = (TextView)findViewById(R.id.friend_reads);
-    this.recipient                 = this.getIntent().getParcelableExtra("recipient");
-    this.masterSecret              = this.getIntent().getParcelableExtra("master_secret");
+    this.recipient                 = RecipientFactory.getRecipientForId(this, this.getIntent().getLongExtra("recipient", -1), true);
   }
 
   @Override
@@ -182,9 +168,9 @@ public class VerifyIdentityActivity extends KeyScanningActivity {
   }
 
   private IdentityKey getRemoteIdentityKey(MasterSecret masterSecret, Recipient recipient) {
-    SessionStore  sessionStore = new TextSecureSessionStore(this, masterSecret);
-    SessionRecord record       = sessionStore.loadSession(recipient.getRecipientId(),
-                                                          PushAddress.DEFAULT_DEVICE_ID);
+    SessionStore   sessionStore   = new TextSecureSessionStore(this, masterSecret);
+    AxolotlAddress axolotlAddress = new AxolotlAddress(recipient.getNumber(), TextSecureAddress.DEFAULT_DEVICE_ID);
+    SessionRecord  record         = sessionStore.loadSession(axolotlAddress);
 
     if (record == null) {
       return null;

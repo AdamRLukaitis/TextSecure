@@ -17,32 +17,15 @@
 package org.thoughtcrime.securesms;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.res.TypedArray;
-import android.graphics.Typeface;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Handler;
-import android.provider.Contacts.Intents;
-import android.provider.ContactsContract.QuickContact;
-import android.text.Spannable;
-import android.text.SpannableStringBuilder;
-import android.text.TextUtils;
-import android.text.style.StyleSpan;
 import android.util.AttributeSet;
-import android.view.View;
-import android.widget.ImageView;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
 
+import org.thoughtcrime.securesms.components.AvatarImageView;
+import org.thoughtcrime.securesms.components.FromTextView;
 import org.thoughtcrime.securesms.database.model.ThreadRecord;
-import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.Recipients;
-import org.thoughtcrime.securesms.util.BitmapUtil;
-import org.thoughtcrime.securesms.util.DateUtils;
-import org.thoughtcrime.securesms.util.Emoji;
-
-import java.util.Set;
 
 /**
  * A simple view to show the recipients of an open conversation
@@ -50,16 +33,16 @@ import java.util.Set;
  * @author Jake McGinty
  */
 public class ShareListItem extends RelativeLayout
-                                  implements Recipient.RecipientModifiedListener
+                        implements Recipients.RecipientsModifiedListener
 {
   private final static String TAG = ShareListItem.class.getSimpleName();
 
-  private Context    context;
-  private Recipients recipients;
-  private long       threadId;
-  private TextView   fromView;
+  private Context      context;
+  private Recipients   recipients;
+  private long         threadId;
+  private FromTextView fromView;
 
-  private ImageView contactPhotoImage;
+  private AvatarImageView contactPhotoImage;
 
   private final Handler handler = new Handler();
   private int distributionType;
@@ -76,8 +59,8 @@ public class ShareListItem extends RelativeLayout
 
   @Override
   protected void onFinishInflate() {
-    this.fromView          = (TextView)  findViewById(R.id.from);
-    this.contactPhotoImage = (ImageView) findViewById(R.id.contact_photo_image);
+    this.fromView          = (FromTextView)    findViewById(R.id.from);
+    this.contactPhotoImage = (AvatarImageView) findViewById(R.id.contact_photo_image);
   }
 
   public void set(ThreadRecord thread) {
@@ -86,19 +69,14 @@ public class ShareListItem extends RelativeLayout
     this.distributionType = thread.getDistributionType();
 
     this.recipients.addListener(this);
-    this.fromView.setText(formatFrom(recipients));
+    this.fromView.setText(recipients);
 
     setBackground();
-    setContactPhoto(this.recipients.getPrimaryRecipient());
+    this.contactPhotoImage.setAvatar(this.recipients, false);
   }
 
   public void unbind() {
     if (this.recipients != null) this.recipients.removeListener(this);
-  }
-
-  private void setContactPhoto(final Recipient recipient) {
-    if (recipient == null) return;
-    contactPhotoImage.setImageBitmap(BitmapUtil.getCircleCroppedBitmap(recipient.getContactPhoto()));
   }
 
   private void setBackground() {
@@ -108,26 +86,6 @@ public class ShareListItem extends RelativeLayout
     setBackgroundDrawable(drawables.getDrawable(0));
 
     drawables.recycle();
-  }
-
-  private CharSequence formatFrom(Recipients from) {
-    final String fromString;
-    final boolean isUnnamedGroup = from.isGroupRecipient() && TextUtils.isEmpty(from.getPrimaryRecipient().getName());
-    if (isUnnamedGroup) {
-      fromString = context.getString(R.string.ConversationActivity_unnamed_group);
-    } else {
-      fromString = from.toShortString();
-    }
-    SpannableStringBuilder builder = new SpannableStringBuilder(fromString);
-
-    final int typeface;
-    if (isUnnamedGroup) typeface = Typeface.ITALIC;
-    else                typeface = Typeface.NORMAL;
-
-    builder.setSpan(new StyleSpan(typeface), 0, builder.length(),
-                    Spannable.SPAN_INCLUSIVE_EXCLUSIVE);
-
-    return builder;
   }
 
   public Recipients getRecipients() {
@@ -143,12 +101,12 @@ public class ShareListItem extends RelativeLayout
   }
 
   @Override
-  public void onModified(Recipient recipient) {
+  public void onModified(final Recipients recipients) {
     handler.post(new Runnable() {
       @Override
       public void run() {
-        fromView.setText(formatFrom(recipients));
-        setContactPhoto(recipients.getPrimaryRecipient());
+        fromView.setText(recipients);
+        contactPhotoImage.setAvatar(recipients, false);
       }
     });
   }

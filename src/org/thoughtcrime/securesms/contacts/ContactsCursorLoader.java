@@ -18,7 +18,15 @@ package org.thoughtcrime.securesms.contacts;
 
 import android.content.Context;
 import android.database.Cursor;
+import android.database.MergeCursor;
 import android.support.v4.content.CursorLoader;
+import android.text.TextUtils;
+import android.util.Log;
+
+import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.util.NumberUtil;
+
+import java.util.ArrayList;
 
 /**
  * CursorLoader that initializes a ContactsDatabase instance
@@ -27,26 +35,33 @@ import android.support.v4.content.CursorLoader;
  */
 public class ContactsCursorLoader extends CursorLoader {
 
-  private final Context          context;
-  private final String           filter;
-  private final boolean          pushOnly;
-  private       ContactsDatabase db;
+  private static final String TAG = ContactsCursorLoader.class.getSimpleName();
 
-  public ContactsCursorLoader(Context context, String filter, boolean pushOnly) {
+  private final String  filter;
+  private       boolean includeSmsContacts;
+
+  public ContactsCursorLoader(Context context, boolean includeSmsContacts, String filter) {
     super(context);
-    this.context  = context;
+
     this.filter   = filter;
-    this.pushOnly = pushOnly;
+    this.includeSmsContacts = includeSmsContacts;
   }
 
   @Override
   public Cursor loadInBackground() {
-    db = ContactsDatabase.getInstance(context);
-    return db.query(filter, pushOnly);
-  }
+    ContactsDatabase  contactsDatabase = DatabaseFactory.getContactsDatabase(getContext());
+    ArrayList<Cursor> cursorList       = new ArrayList<>(3);
 
-  @Override
-  public void onReset() {
-    super.onReset();
+    cursorList.add(contactsDatabase.queryTextSecureContacts(filter));
+
+    if (includeSmsContacts) {
+      cursorList.add(contactsDatabase.querySystemContacts(filter));
+    }
+
+    if (!TextUtils.isEmpty(filter) && NumberUtil.isValidSmsOrEmail(filter)) {
+      cursorList.add(contactsDatabase.getNewNumberCursor(filter));
+    }
+
+    return new MergeCursor(cursorList.toArray(new Cursor[0]));
   }
 }

@@ -17,68 +17,66 @@
 package org.thoughtcrime.securesms;
 
 import android.annotation.TargetApi;
-import android.content.ContentUris;
 import android.content.DialogInterface;
-import android.graphics.BitmapFactory;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.ImageView;
 import android.widget.Toast;
 
+import org.thoughtcrime.securesms.components.ZoomingImageView;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.providers.PartProvider;
 import org.thoughtcrime.securesms.recipients.Recipient;
+import org.thoughtcrime.securesms.recipients.Recipient.RecipientModifiedListener;
+import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.util.DateUtils;
 import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.util.SaveAttachmentTask;
 import org.thoughtcrime.securesms.util.SaveAttachmentTask.Attachment;
 
-import java.io.IOException;
-import java.io.InputStream;
-
-import uk.co.senab.photoview.PhotoViewAttacher;
-
 /**
  * Activity for displaying media attachments in-app
  */
-public class MediaPreviewActivity extends PassphraseRequiredActionBarActivity {
+public class MediaPreviewActivity extends PassphraseRequiredActionBarActivity implements RecipientModifiedListener {
   private final static String TAG = MediaPreviewActivity.class.getSimpleName();
 
-  public final static String MASTER_SECRET_EXTRA = "master_secret";
-  public final static String RECIPIENT_EXTRA     = "recipient";
-  public final static String DATE_EXTRA          = "date";
+  public static final String RECIPIENT_EXTRA = "recipient";
+  public static final String DATE_EXTRA      = "date";
 
   private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
 
   private MasterSecret masterSecret;
 
-  private ImageView         image;
-  private PhotoViewAttacher imageAttacher;
+  private ZoomingImageView  image;
   private Uri               mediaUri;
   private String            mediaType;
   private Recipient         recipient;
   private long              date;
 
   @Override
-  protected void onCreate(Bundle bundle) {
+  protected void onCreate(Bundle bundle, @NonNull MasterSecret masterSecret) {
+    this.masterSecret = masterSecret;
+    this.setTheme(R.style.TextSecure_DarkTheme);
+    dynamicLanguage.onCreate(this);
+
     setFullscreenIfPossible();
     getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                          WindowManager.LayoutParams.FLAG_FULLSCREEN);
-    dynamicLanguage.onCreate(this);
-    this.setTheme(R.style.TextSecure_DarkTheme);
-    super.onCreate(bundle);
+
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
     setContentView(R.layout.media_preview_activity);
+
+    initializeViews();
     initializeResources();
+    initializeActionBar();
   }
 
   @TargetApi(VERSION_CODES.JELLY_BEAN)
@@ -89,16 +87,11 @@ public class MediaPreviewActivity extends PassphraseRequiredActionBarActivity {
   }
 
   @Override
-  public void onResume() {
-    super.onResume();
-    dynamicLanguage.onResume(this);
+  public void onModified(Recipient recipient) {
+    initializeActionBar();
+  }
 
-    masterSecret = getIntent().getParcelableExtra(MASTER_SECRET_EXTRA);
-    mediaUri     = getIntent().getData();
-    mediaType    = getIntent().getType();
-    recipient    = getIntent().getParcelableExtra(RECIPIENT_EXTRA);
-    date         = getIntent().getLongExtra(DATE_EXTRA, -1);
-
+  private void initializeActionBar() {
     final CharSequence relativeTimeSpan;
     if (date > 0) {
       relativeTimeSpan = DateUtils.getRelativeTimeSpanString(date,
@@ -107,52 +100,70 @@ public class MediaPreviewActivity extends PassphraseRequiredActionBarActivity {
     } else {
       relativeTimeSpan = null;
     }
-    getSupportActionBar().setTitle(recipient == null ? getString(R.string.MediaPreviewActivity_you) : recipient.getName());
+    getSupportActionBar().setTitle(recipient == null ? getString(R.string.MediaPreviewActivity_you)
+                                                     : recipient.toShortString());
     getSupportActionBar().setSubtitle(relativeTimeSpan);
-
-    if (!isContentTypeSupported(mediaType)) {
-      Log.w(TAG, "Unsupported media type sent to MediaPreviewActivity, finishing.");
-      Toast.makeText(getApplicationContext(), "Unsupported media type", Toast.LENGTH_LONG).show();
-      finish();
-    }
-
-    try {
-      Log.w(TAG, "Loading Part URI: " + mediaUri);
-
-      final InputStream is = getInputStream(mediaUri, masterSecret);
-
-      if (mediaType != null && mediaType.startsWith("image/")) {
-        displayImage(is);
-      }
-    } catch (IOException ioe) {
-      Log.w(TAG, ioe);
-      Toast.makeText(getApplicationContext(), "Could not read the media", Toast.LENGTH_LONG).show();
-      finish();
-    }
   }
 
-  private InputStream getInputStream(Uri uri, MasterSecret masterSecret) throws IOException {
-    if (PartProvider.isAuthority(uri)) {
-      return DatabaseFactory.getEncryptingPartDatabase(this, masterSecret).getPartStream(ContentUris.parseId(uri));
-    } else {
-      throw new AssertionError("Given a URI that is not handled by our app.");
-    }
+  @Override
+  public void onResume() {
+    super.onResume();
+    dynamicLanguage.onResume(this);
+    if (recipient != null) recipient.addListener(this);
+    initializeMedia();
   }
 
   @Override
   public void onPause() {
     super.onPause();
+    if (recipient != null) recipient.removeListener(this);
+    cleanupMedia();
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    if (recipient != null) recipient.removeListener(this);
+    setIntent(intent);
+    initializeResources();
+    initializeActionBar();
+  }
+
+  private void initializeViews() {
+    image = (ZoomingImageView)findViewById(R.id.image);
   }
 
   private void initializeResources() {
-    image         = (ImageView) findViewById(R.id.image);
-    imageAttacher = new PhotoViewAttacher(image);
-   }
+    final long recipientId = getIntent().getLongExtra(RECIPIENT_EXTRA, -1);
 
-  private void displayImage(final InputStream is) {
-    image.setImageBitmap(BitmapFactory.decodeStream(is));
-    image.setVisibility(View.VISIBLE);
-    imageAttacher.update();
+    mediaUri     = getIntent().getData();
+    mediaType    = getIntent().getType();
+    date         = getIntent().getLongExtra(DATE_EXTRA, -1);
+
+    if (recipientId > -1) {
+      recipient = RecipientFactory.getRecipientForId(this, recipientId, true);
+      recipient.addListener(this);
+    } else {
+      recipient = null;
+    }
+  }
+
+  private void initializeMedia() {
+    if (!isContentTypeSupported(mediaType)) {
+      Log.w(TAG, "Unsupported media type sent to MediaPreviewActivity, finishing.");
+      Toast.makeText(getApplicationContext(), R.string.MediaPreviewActivity_unssuported_media_type, Toast.LENGTH_LONG).show();
+      finish();
+    }
+
+    Log.w(TAG, "Loading Part URI: " + mediaUri);
+
+    if (mediaType != null && mediaType.startsWith("image/")) {
+      image.setImageUri(masterSecret, mediaUri);
+    }
+  }
+
+  private void cleanupMedia() {
+    image.setImageDrawable(null);
   }
 
   private void saveToDisk() {

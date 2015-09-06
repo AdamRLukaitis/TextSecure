@@ -1,6 +1,7 @@
 package org.thoughtcrime.securesms;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.app.FragmentStatePagerAdapter;
@@ -10,23 +11,37 @@ import android.support.v7.app.ActionBar;
 import android.view.MenuItem;
 
 import org.thoughtcrime.securesms.crypto.MasterSecret;
+import org.thoughtcrime.securesms.util.DynamicTheme;
 
 
 public class ImportExportActivity extends PassphraseRequiredActionBarActivity {
 
+  private MasterSecret    masterSecret;
   private TabPagerAdapter tabPagerAdapter;
-  private ViewPager viewPager;
-  private MasterSecret masterSecret;
+  private ViewPager       viewPager;
+
+  private DynamicTheme dynamicTheme = new DynamicTheme();
 
   @Override
-  public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
+  protected void onPreCreate() {
+    dynamicTheme.onCreate(this);
+  }
+
+  @Override
+  protected void onCreate(Bundle savedInstanceState, @NonNull MasterSecret masterSecret) {
+    this.masterSecret = masterSecret;
     setContentView(R.layout.import_export_activity);
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
     initializeResources();
     initializeViewPager();
     initializeTabs();
+  }
+
+  @Override
+  public void onResume() {
+      dynamicTheme.onResume(this);
+      super.onResume();
   }
 
   @Override
@@ -41,7 +56,6 @@ public class ImportExportActivity extends PassphraseRequiredActionBarActivity {
   }
 
   private void initializeResources() {
-    this.masterSecret    = getIntent().getParcelableExtra("master_secret");
     this.viewPager       = (ViewPager) findViewById(R.id.import_export_pager);
     this.tabPagerAdapter = new TabPagerAdapter(getSupportFragmentManager());
 

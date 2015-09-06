@@ -22,6 +22,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.support.annotation.NonNull;
 import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 import android.util.Log;
@@ -56,7 +57,7 @@ public class CanonicalAddressDatabase {
   public static CanonicalAddressDatabase getInstance(Context context) {
     synchronized (lock) {
       if (instance == null)
-        instance = new CanonicalAddressDatabase(context);
+        instance = new CanonicalAddressDatabase(context.getApplicationContext());
 
       return instance;
     }
@@ -69,7 +70,7 @@ public class CanonicalAddressDatabase {
 
   public void reset(Context context) {
     DatabaseHelper old  = this.databaseHelper;
-    this.databaseHelper = new DatabaseHelper(context, DATABASE_NAME, null, DATABASE_VERSION);
+    this.databaseHelper = new DatabaseHelper(context.getApplicationContext(), DATABASE_NAME, null, DATABASE_VERSION);
     old.close();
     fillCache();
   }
@@ -97,7 +98,7 @@ public class CanonicalAddressDatabase {
     }
   }
 
-  public String getAddressFromId(long id) {
+  public @NonNull String getAddressFromId(long id) {
     String cachedAddress = idCache.get(id);
 
     if (cachedAddress != null)

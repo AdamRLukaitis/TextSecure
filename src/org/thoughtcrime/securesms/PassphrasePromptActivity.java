@@ -17,14 +17,11 @@
 package org.thoughtcrime.securesms;
 
 import android.content.Intent;
-import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.v7.app.ActionBar;
 import android.text.Editable;
 import android.text.SpannableString;
 import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
 import android.text.style.TypefaceSpan;
 import android.view.KeyEvent;
@@ -41,9 +38,9 @@ import android.widget.Toast;
 
 import org.thoughtcrime.securesms.crypto.InvalidPassphraseException;
 import org.thoughtcrime.securesms.crypto.MasterSecretUtil;
-import org.thoughtcrime.securesms.util.MemoryCleaner;
+import org.thoughtcrime.securesms.util.DynamicIntroTheme;
+import org.thoughtcrime.securesms.util.DynamicLanguage;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.util.Util;
 
 /**
  * Activity that prompts for a user's passphrase.
@@ -52,14 +49,32 @@ import org.thoughtcrime.securesms.util.Util;
  */
 public class PassphrasePromptActivity extends PassphraseActivity {
 
+  private DynamicIntroTheme dynamicTheme    = new DynamicIntroTheme();
+  private DynamicLanguage   dynamicLanguage = new DynamicLanguage();
+
   private EditText passphraseText;
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    dynamicTheme.onCreate(this);
+    dynamicLanguage.onCreate(this);
     super.onCreate(savedInstanceState);
 
     setContentView(R.layout.prompt_passphrase_activity);
     initializeResources();
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    dynamicTheme.onResume(this);
+    dynamicLanguage.onResume(this);
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
   }
 
   @Override
@@ -91,9 +106,8 @@ public class PassphrasePromptActivity extends PassphraseActivity {
     try {
       Editable text             = passphraseText.getText();
       String passphrase         = (text == null ? "" : text.toString());
-      MasterSecret masterSecret = MasterSecretUtil.getMasterSecret(PassphrasePromptActivity.this, passphrase);
+      MasterSecret masterSecret = MasterSecretUtil.getMasterSecret(this, passphrase);
 
-      MemoryCleaner.clean(passphrase);
       setMasterSecret(masterSecret);
     } catch (InvalidPassphraseException ipe) {
       passphraseText.setText("");
@@ -104,16 +118,14 @@ public class PassphrasePromptActivity extends PassphraseActivity {
 
   private void initializeResources() {
     getSupportActionBar().setDisplayOptions(ActionBar.DISPLAY_SHOW_CUSTOM);
-    getSupportActionBar().setCustomView(R.layout.light_centered_app_title);
-    mitigateAndroidTilingBug();
+    getSupportActionBar().setCustomView(R.layout.centered_app_title);
 
     ImageButton okButton = (ImageButton) findViewById(R.id.ok_button);
     passphraseText       = (EditText)    findViewById(R.id.passphrase_edit);
-    SpannableString hint = new SpannableString(getString(R.string.PassphrasePromptActivity_enter_passphrase));
-
-    hint.setSpan(new RelativeSizeSpan(0.8f), 0, hint.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+    SpannableString hint = new SpannableString("  " + getString(R.string.PassphrasePromptActivity_enter_passphrase));
+    hint.setSpan(new RelativeSizeSpan(0.9f), 0, hint.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
     hint.setSpan(new TypefaceSpan("sans-serif"), 0, hint.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
-    hint.setSpan(new ForegroundColorSpan(0x66000000), 0, hint.length(), Spanned.SPAN_INCLUSIVE_INCLUSIVE);
+
     passphraseText.setHint(hint);
     okButton.setOnClickListener(new OkButtonClickListener());
     passphraseText.setOnEditorActionListener(new PassphraseActionListener());
@@ -137,15 +149,6 @@ public class PassphrasePromptActivity extends PassphraseActivity {
       }
 
       return false;
-    }
-  }
-
-  private void mitigateAndroidTilingBug() {
-    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-      Drawable actionBarBackground = getResources().getDrawable(R.drawable.background_pattern_repeat);
-      Util.fixBackgroundRepeat(actionBarBackground);
-      getSupportActionBar().setBackgroundDrawable(actionBarBackground);
-      Util.fixBackgroundRepeat(findViewById(R.id.scroll_parent).getBackground());
     }
   }
 

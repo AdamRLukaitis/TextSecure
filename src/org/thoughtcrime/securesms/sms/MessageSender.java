@@ -22,6 +22,7 @@ import android.util.Pair;
 
 import org.thoughtcrime.securesms.ApplicationContext;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
+import org.thoughtcrime.securesms.crypto.MasterSecretUnion;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.database.EncryptingSmsDatabase;
 import org.thoughtcrime.securesms.database.MmsDatabase;
@@ -45,7 +46,6 @@ import org.whispersystems.jobqueue.JobManager;
 import org.whispersystems.libaxolotl.util.guava.Optional;
 import org.whispersystems.textsecure.api.TextSecureAccountManager;
 import org.whispersystems.textsecure.api.push.ContactTokenDetails;
-import org.thoughtcrime.securesms.util.DirectoryUtil;
 import org.whispersystems.textsecure.api.util.InvalidNumberException;
 
 import java.io.IOException;
@@ -74,7 +74,7 @@ public class MessageSender {
       allocatedThreadId = threadId;
     }
 
-    long messageId = database.insertMessageOutbox(masterSecret, allocatedThreadId, message, forceSms);
+    long messageId = database.insertMessageOutbox(new MasterSecretUnion(masterSecret), allocatedThreadId, message, forceSms, System.currentTimeMillis());
 
     sendTextMessage(context, recipients, forceSms, keyExchange, messageId);
 
@@ -100,7 +100,7 @@ public class MessageSender {
       }
 
       Recipients recipients = message.getRecipients();
-      long       messageId  = database.insertMessageOutbox(masterSecret, message, allocatedThreadId, forceSms);
+      long       messageId  = database.insertMessageOutbox(new MasterSecretUnion(masterSecret), message, allocatedThreadId, forceSms, System.currentTimeMillis());
 
       sendMediaMessage(context, masterSecret, recipients, forceSms, messageId);
 
@@ -111,16 +111,24 @@ public class MessageSender {
     }
   }
 
+  public static void resendGroupMessage(Context context, MasterSecret masterSecret, MessageRecord messageRecord, long filterRecipientId) {
+    if (!messageRecord.isMms()) throw new AssertionError("Not Group");
+
+    Recipients recipients = DatabaseFactory.getMmsAddressDatabase(context).getRecipientsForId(messageRecord.getId());
+    sendGroupPush(context, recipients, messageRecord.getId(), filterRecipientId);
+  }
+
   public static void resend(Context context, MasterSecret masterSecret, MessageRecord messageRecord) {
     try {
-      Recipients recipients  = messageRecord.getRecipients();
       long       messageId   = messageRecord.getId();
       boolean    forceSms    = messageRecord.isForcedSms();
       boolean    keyExchange = messageRecord.isKeyExchange();
 
       if (messageRecord.isMms()) {
+        Recipients recipients = DatabaseFactory.getMmsAddressDatabase(context).getRecipientsForId(messageId);
         sendMediaMessage(context, masterSecret, recipients, forceSms, messageId);
       } else {
+        Recipients recipients  = messageRecord.getRecipients();
         sendTextMessage(context, recipients, forceSms, keyExchange, messageId);
       }
     } catch (MmsException e) {
@@ -135,7 +143,7 @@ public class MessageSender {
     if (!forceSms && isSelfSend(context, recipients)) {
       sendMediaSelf(context, masterSecret, messageId);
     } else if (isGroupPushSend(recipients)) {
-      sendGroupPush(context, recipients, messageId);
+      sendGroupPush(context, recipients, messageId, -1);
     } else if (!forceSms && isPushMediaSend(context, recipients)) {
       sendMediaPush(context, recipients, messageId);
     } else {
@@ -186,9 +194,9 @@ public class MessageSender {
     jobManager.add(new PushMediaSendJob(context, messageId, recipients.getPrimaryRecipient().getNumber()));
   }
 
-  private static void sendGroupPush(Context context, Recipients recipients, long messageId) {
+  private static void sendGroupPush(Context context, Recipients recipients, long messageId, long filterRecipientId) {
     JobManager jobManager = ApplicationContext.getInstance(context).getJobManager();
-    jobManager.add(new PushGroupSendJob(context, messageId, recipients.getPrimaryRecipient().getNumber()));
+    jobManager.add(new PushGroupSendJob(context, messageId, recipients.getPrimaryRecipient().getNumber(), filterRecipientId));
   }
 
   private static void sendSms(Context context, Recipients recipients, long messageId) {
@@ -275,8 +283,7 @@ public class MessageSender {
     } catch (NotInDirectoryException e) {
       try {
         TextSecureAccountManager      accountManager = TextSecureCommunicationFactory.createManager(context);
-        String                        contactToken   = DirectoryUtil.getDirectoryServerToken(destination);
-        Optional<ContactTokenDetails> registeredUser = accountManager.getContact(contactToken);
+        Optional<ContactTokenDetails> registeredUser = accountManager.getContact(destination);
 
         if (!registeredUser.isPresent()) {
           registeredUser = Optional.of(new ContactTokenDetails());

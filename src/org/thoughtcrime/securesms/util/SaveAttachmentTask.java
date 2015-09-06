@@ -1,7 +1,5 @@
 package org.thoughtcrime.securesms.util;
 
-import android.app.AlertDialog;
-import android.content.ContentUris;
 import android.content.Context;
 import android.content.DialogInterface.OnClickListener;
 import android.media.MediaScannerConnection;
@@ -11,10 +9,11 @@ import android.util.Log;
 import android.webkit.MimeTypeMap;
 import android.widget.Toast;
 
+import com.afollestad.materialdialogs.AlertDialogWrapper;
+
 import org.thoughtcrime.securesms.R;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.providers.PartProvider;
+import org.thoughtcrime.securesms.mms.PartAuthority;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -59,10 +58,14 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
         return FAILURE;
       }
 
-      File mediaFile            = constructOutputFile(attachment.contentType, attachment.date);
-      InputStream inputStream   = DatabaseFactory.getEncryptingPartDatabase(context, masterSecret).getPartStream(ContentUris.parseId(attachment.uri));
-      OutputStream outputStream = new FileOutputStream(mediaFile);
+      File        mediaFile   = constructOutputFile(attachment.contentType, attachment.date);
+      InputStream inputStream = PartAuthority.getPartStream(context, masterSecret, attachment.uri);
 
+      if (inputStream == null) {
+        return FAILURE;
+      }
+
+      OutputStream outputStream = new FileOutputStream(mediaFile);
       Util.copy(inputStream, outputStream);
 
       MediaScannerConnection.scanFile(context, new String[]{mediaFile.getAbsolutePath()},
@@ -139,9 +142,6 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
       if (uri == null || contentType == null || date < 0) {
         throw new AssertionError("uri, content type, and date must all be specified");
       }
-      if (!PartProvider.isAuthority(uri)) {
-        throw new AssertionError("attachment must be a TextSecure attachment");
-      }
       this.uri         = uri;
       this.contentType = contentType;
       this.date        = date;
@@ -149,9 +149,9 @@ public class SaveAttachmentTask extends ProgressDialogAsyncTask<SaveAttachmentTa
   }
 
   public static void showWarningDialog(Context context, OnClickListener onAcceptListener) {
-    AlertDialog.Builder builder = new AlertDialog.Builder(context);
+    AlertDialogWrapper.Builder builder = new AlertDialogWrapper.Builder(context);
     builder.setTitle(R.string.ConversationFragment_save_to_sd_card);
-    builder.setIcon(Dialogs.resolveIcon(context, R.attr.dialog_alert_icon));
+    builder.setIconAttribute(R.attr.dialog_alert_icon);
     builder.setCancelable(true);
     builder.setMessage(R.string.ConversationFragment_this_media_has_been_stored_in_an_encrypted_database_warning);
     builder.setPositiveButton(R.string.yes, onAcceptListener);

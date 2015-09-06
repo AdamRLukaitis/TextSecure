@@ -16,18 +16,14 @@
  */
 package org.thoughtcrime.securesms;
 
-import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.v7.app.ActionBar;
 
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.MasterSecretUtil;
-import org.thoughtcrime.securesms.util.MemoryCleaner;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
-import org.thoughtcrime.securesms.util.Util;
 import org.thoughtcrime.securesms.util.VersionTracker;
 
 /**
@@ -51,10 +47,8 @@ public class PassphraseCreateActivity extends PassphraseActivity {
 
   private void initializeResources() {
     getSupportActionBar().setDisplayOptions(ActionBar.DISPLAY_SHOW_CUSTOM);
-    getSupportActionBar().setCustomView(R.layout.light_centered_app_title);
-    mitigateAndroidTilingBug();
+    getSupportActionBar().setCustomView(R.layout.centered_app_title);
 
-    TextSecurePreferences.setPasswordDisabled(this, true);
     new SecretGenerator().execute(MasterSecretUtil.UNENCRYPTED_PASSPHRASE);
   }
 
@@ -71,11 +65,10 @@ public class PassphraseCreateActivity extends PassphraseActivity {
       masterSecret      = MasterSecretUtil.generateMasterSecret(PassphraseCreateActivity.this,
                                                                 passphrase);
 
-      MemoryCleaner.clean(passphrase);
-
       MasterSecretUtil.generateAsymmetricMasterSecret(PassphraseCreateActivity.this, masterSecret);
-      IdentityKeyUtil.generateIdentityKeys(PassphraseCreateActivity.this, masterSecret);
+      IdentityKeyUtil.generateIdentityKeys(PassphraseCreateActivity.this);
       VersionTracker.updateLastSeenVersion(PassphraseCreateActivity.this);
+      TextSecurePreferences.setPasswordDisabled(PassphraseCreateActivity.this, true);
 
       return null;
     }
@@ -83,15 +76,6 @@ public class PassphraseCreateActivity extends PassphraseActivity {
     @Override
     protected void onPostExecute(Void param) {
       setMasterSecret(masterSecret);
-    }
-  }
-
-  private void mitigateAndroidTilingBug() {
-    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-      Drawable actionBarBackground = getResources().getDrawable(R.drawable.background_pattern_repeat);
-      Util.fixBackgroundRepeat(actionBarBackground);
-      getSupportActionBar().setBackgroundDrawable(actionBarBackground);
-      Util.fixBackgroundRepeat(findViewById(R.id.scroll_parent).getBackground());
     }
   }
 

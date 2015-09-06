@@ -1,11 +1,10 @@
 package org.thoughtcrime.securesms;
 
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
-import android.support.v7.app.ActionBarActivity;
 import android.telephony.TelephonyManager;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -19,6 +18,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.afollestad.materialdialogs.AlertDialogWrapper;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.i18n.phonenumbers.AsYouTypeFormatter;
@@ -26,9 +26,9 @@ import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber;
 
+import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.util.Dialogs;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
-import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.util.Util;
 import org.whispersystems.textsecure.api.util.PhoneNumberFormatter;
 
@@ -39,7 +39,7 @@ import org.whispersystems.textsecure.api.util.PhoneNumberFormatter;
  * @author Moxie Marlinspike
  *
  */
-public class RegistrationActivity extends ActionBarActivity {
+public class RegistrationActivity extends BaseActionBarActivity {
 
   private static final int PICK_COUNTRY = 1;
 
@@ -86,6 +86,23 @@ public class RegistrationActivity extends ActionBarActivity {
     this.number.addTextChangedListener(new NumberChangedListener());
     this.createButton.setOnClickListener(new CreateButtonListener());
     this.skipButton.setOnClickListener(new CancelButtonListener());
+
+    if (getIntent().getBooleanExtra("cancel_button", false)) {
+      this.skipButton.setVisibility(View.VISIBLE);
+    } else {
+      this.skipButton.setVisibility(View.INVISIBLE);
+    }
+
+    findViewById(R.id.twilio_shoutout).setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        Intent intent = new Intent();
+        intent.setAction(Intent.ACTION_VIEW);
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        intent.setData(Uri.parse("https://twilio.com"));
+        startActivity(intent);
+      }
+    });
   }
 
   private void initializeSpinner() {
@@ -154,8 +171,6 @@ public class RegistrationActivity extends ActionBarActivity {
     public void onClick(View v) {
       final RegistrationActivity self = RegistrationActivity.this;
 
-      TextSecurePreferences.setPromptedPushRegistration(self, true);
-
       if (TextUtils.isEmpty(countryCode.getText())) {
         Toast.makeText(self,
                        getString(R.string.RegistrationActivity_you_must_specify_your_country_code),
@@ -192,9 +207,9 @@ public class RegistrationActivity extends ActionBarActivity {
         return;
       }
 
-      AlertDialog.Builder dialog = new AlertDialog.Builder(self);
-      dialog.setMessage(String.format(getString(R.string.RegistrationActivity_we_will_now_verify_that_the_following_number_is_associated_with_your_device_s),
-                                      PhoneNumberFormatter.getInternationalFormatFromE164(e164number)));
+      AlertDialogWrapper.Builder dialog = new AlertDialogWrapper.Builder(self);
+      dialog.setTitle(PhoneNumberFormatter.getInternationalFormatFromE164(e164number));
+      dialog.setMessage(R.string.RegistrationActivity_we_will_now_verify_that_the_following_number_is_associated_with_your_device_s);
       dialog.setPositiveButton(getString(R.string.RegistrationActivity_continue),
                                new DialogInterface.OnClickListener() {
                                  @Override
@@ -281,7 +296,7 @@ public class RegistrationActivity extends ActionBarActivity {
       Intent nextIntent = getIntent().getParcelableExtra("next_intent");
 
       if (nextIntent == null) {
-        nextIntent = new Intent(RegistrationActivity.this, RoutingActivity.class);
+        nextIntent = new Intent(RegistrationActivity.this, ConversationListActivity.class);
       }
 
       startActivity(nextIntent);

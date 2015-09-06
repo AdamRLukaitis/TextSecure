@@ -31,8 +31,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 
+import com.afollestad.materialdialogs.MaterialDialog;
+
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.push.TextSecureCommunicationFactory;
+import org.thoughtcrime.securesms.service.KeyCachingService;
 import org.thoughtcrime.securesms.service.RegistrationService;
 import org.thoughtcrime.securesms.util.Dialogs;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
@@ -46,7 +49,7 @@ import java.io.IOException;
 
 import static org.thoughtcrime.securesms.service.RegistrationService.RegistrationState;
 
-public class RegistrationProgressActivity extends ActionBarActivity {
+public class RegistrationProgressActivity extends BaseActionBarActivity {
 
   private static final int FOCUSED_COLOR   = Color.parseColor("#ff333333");
   private static final int UNFOCUSED_COLOR = Color.parseColor("#ff808080");
@@ -170,9 +173,11 @@ public class RegistrationProgressActivity extends ActionBarActivity {
     spannableString.setSpan(new ClickableSpan() {
       @Override
       public void onClick(View widget) {
-        Intent intent = new Intent(RegistrationProgressActivity.this,
-                                   RegistrationProblemsActivity.class);
-        startActivity(intent);
+        new MaterialDialog.Builder(RegistrationProgressActivity.this)
+            .title(R.string.RegistrationProblemsActivity_possible_problems)
+            .customView(R.layout.registration_problems, true)
+            .neutralText(android.R.string.ok)
+            .show();
       }
     }, pretext.length() + 1, spannableString.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
@@ -330,7 +335,7 @@ public class RegistrationProgressActivity extends ActionBarActivity {
     }
 
     shutdownService();
-    startActivity(new Intent(this, RoutingActivity.class));
+    startActivity(new Intent(this, ConversationListActivity.class));
     finish();
   }
 
@@ -429,7 +434,7 @@ public class RegistrationProgressActivity extends ActionBarActivity {
     }
   }
 
-  private class RegistrationReceiver extends BroadcastReceiver {
+  private static class RegistrationReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
       abortBroadcast();

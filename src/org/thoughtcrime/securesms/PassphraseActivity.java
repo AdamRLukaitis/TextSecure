@@ -21,11 +21,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
-import android.support.v7.app.ActionBarActivity;
 
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.service.KeyCachingService;
-import org.thoughtcrime.securesms.util.MemoryCleaner;
 
 
 /**
@@ -33,7 +31,7 @@ import org.thoughtcrime.securesms.util.MemoryCleaner;
  *
  * @author Moxie Marlinspike
  */
-public abstract class PassphraseActivity extends ActionBarActivity {
+public abstract class PassphraseActivity extends BaseActionBarActivity {
 
   private KeyCachingService keyCachingService;
   private MasterSecret masterSecret;
@@ -41,11 +39,8 @@ public abstract class PassphraseActivity extends ActionBarActivity {
   protected void setMasterSecret(MasterSecret masterSecret) {
     this.masterSecret = masterSecret;
     Intent bindIntent = new Intent(this, KeyCachingService.class);
+    startService(bindIntent);
     bindService(bindIntent, serviceConnection, Context.BIND_AUTO_CREATE);
-  }
-
-  protected MasterSecret getMasterSecret() {
-    return masterSecret;
   }
 
   protected abstract void cleanup();
@@ -58,11 +53,12 @@ public abstract class PassphraseActivity extends ActionBarActivity {
 
         PassphraseActivity.this.unbindService(PassphraseActivity.this.serviceConnection);
 
-        MemoryCleaner.clean(masterSecret);
+        masterSecret = null;
         cleanup();
 
-        PassphraseActivity.this.setResult(RESULT_OK);
-        PassphraseActivity.this.finish();
+        Intent nextIntent = getIntent().getParcelableExtra("next_intent");
+        if (nextIntent != null) startActivity(nextIntent);
+        finish();
       }
 
       @Override

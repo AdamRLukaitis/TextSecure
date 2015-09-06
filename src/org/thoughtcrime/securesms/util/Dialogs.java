@@ -16,34 +16,28 @@
  */
 package org.thoughtcrime.securesms.util;
 
-import android.app.AlertDialog;
 import android.content.Context;
-import android.graphics.drawable.Drawable;
-import android.util.TypedValue;
+
+import com.afollestad.materialdialogs.AlertDialogWrapper;
 
 import org.thoughtcrime.securesms.R;
 
 public class Dialogs {
   public static void showAlertDialog(Context context, String title, String message) {
-    AlertDialog.Builder dialog = new AlertDialog.Builder(context);
+    AlertDialogWrapper.Builder dialog = new AlertDialogWrapper.Builder(context);
     dialog.setTitle(title);
     dialog.setMessage(message);
-    dialog.setIcon(resolveIcon(context, R.attr.dialog_alert_icon));
-    dialog.setPositiveButton(android.R.string.ok, null);
-    dialog.show();
-  }
-  public static void showInfoDialog(Context context, String title, String message) {
-    AlertDialog.Builder dialog = new AlertDialog.Builder(context);
-    dialog.setTitle(title);
-    dialog.setMessage(message);
-    dialog.setIcon(resolveIcon(context, R.attr.dialog_info_icon));
+    dialog.setIconAttribute(R.attr.dialog_alert_icon);
     dialog.setPositiveButton(android.R.string.ok, null);
     dialog.show();
   }
 
-  public static Drawable resolveIcon(Context c, int iconAttr) {
-    TypedValue out = new TypedValue();
-    c.getTheme().resolveAttribute(iconAttr, out, true);
-    return c.getResources().getDrawable(out.resourceId);
+  public static void showInfoDialog(Context context, String title, String message) {
+    AlertDialogWrapper.Builder dialog = new AlertDialogWrapper.Builder(context);
+    dialog.setTitle(title);
+    dialog.setMessage(message);
+    dialog.setIconAttribute(R.attr.dialog_info_icon);
+    dialog.setPositiveButton(android.R.string.ok, null);
+    dialog.show();
   }
 }

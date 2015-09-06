@@ -1,9 +1,8 @@
 # TextSecure [![Build Status](https://travis-ci.org/WhisperSystems/TextSecure.svg?branch=master)](https://travis-ci.org/WhisperSystems/TextSecure)
 
-TextSecure is a messaging app for easy private communicate with friends.
+TextSecure is a messaging app for simple private communication with friends.
 
-TextSecure can use either data (WiFi/3G/4G) or SMS to communicate securely, and all TextSecure
-messages can also be encrypted locally on your device.
+TextSecure uses your phone's data connection (WiFi/3G/4G) to communicate securely, optionally supports plain SMS/MMS to function as a unified messenger, and can also encrypt the stored messages on your phone.
 
 Currently available on the Play store.
 
@@ -13,6 +12,14 @@ Currently available on the Play store.
 We use GitHub for bug tracking. Please search the existing issues for your bug and create a new one if the issue is not yet tracked!
 
 https://github.com/WhisperSystems/TextSecure/issues
+
+## Joining the Beta
+Want to live life on the bleeding edge and help out with testing?
+
+You can subscribe to TextSecure Beta releases here:
+https://play.google.com/apps/testing/org.thoughtcrime.securesms
+ 
+If you're interested in a life of peace and tranquility, stick with the standard releases.
 
 ## Contributing Translations
 Interested in helping to translate TextSecure? Contribute here:
@@ -38,7 +45,7 @@ whispersystems@lists.riseup.net
 https://lists.riseup.net/www/info/whispersystems
 
 ## Contributing Funds
-[![Donate](https://coinbase.com/assets/buttons/donation_large-6ec72b1a9eec516944e50a22aca7db35.png)](https://whispersystems.org/blog/bithub/)
+[![Donate](https://www.coinbase.com/assets/buttons/donation_large-5e1b50d6490970e32b80023f3070b1d77afc621b9e64ac996596a67a4671967b.png)](https://www.coinbase.com/checkouts/51dac699e660a4d773216b5ad94d6a0b)
 
 You can add funds to BitHub to directly help further development efforts.
 

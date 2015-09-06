@@ -23,21 +23,21 @@ import android.database.MergeCursor;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.provider.ContactsContract;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
 import android.provider.ContactsContract.Contacts;
-import android.provider.ContactsContract.Data;
 import android.provider.ContactsContract.PhoneLookup;
-import android.support.v4.content.CursorLoader;
-import android.support.v4.content.Loader;
 import android.telephony.PhoneNumberUtils;
 
+import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.database.GroupDatabase;
 import org.thoughtcrime.securesms.database.TextSecureDirectory;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
+
+import static org.thoughtcrime.securesms.database.GroupDatabase.GroupRecord;
 
 /**
  * This class was originally a layer of indirection between
@@ -59,35 +59,6 @@ public class ContactAccessor {
 
   public static synchronized ContactAccessor getInstance() {
     return instance;
-  }
-
-  public CursorLoader getCursorLoaderForContactsWithNumbers(Context context) {
-    Uri uri          = ContactsContract.Contacts.CONTENT_URI;
-    String selection = ContactsContract.Contacts.HAS_PHONE_NUMBER + " = 1";
-
-    return new CursorLoader(context, uri, null, selection, null,
-                            ContactsContract.Contacts.DISPLAY_NAME + " ASC");
-  }
-
-  public CursorLoader getCursorLoaderForContactGroups(Context context) {
-    return new CursorLoader(context, ContactsContract.Groups.CONTENT_URI,
-                            null, null, null, ContactsContract.Groups.TITLE + " ASC");
-  }
-
-  public Loader<Cursor> getCursorLoaderForContacts(Context context, String filter) {
-    return new ContactsCursorLoader(context, filter, false);
-  }
-
-  public Loader<Cursor> getCursorLoaderForPushContacts(Context context, String filter) {
-    return new ContactsCursorLoader(context, filter, true);
-  }
-
-  public Cursor getCursorForContactsWithNumbers(Context context) {
-    Uri uri = ContactsContract.Contacts.CONTENT_URI;
-    String selection = ContactsContract.Contacts.HAS_PHONE_NUMBER + " = 1";
-
-    return context.getContentResolver().query(uri, null, selection, null,
-                                              ContactsContract.Contacts.DISPLAY_NAME + " ASC");
   }
 
   public Collection<ContactData> getContactsWithPush(Context context) {
@@ -132,34 +103,6 @@ public class ContactAccessor {
     return null;
   }
 
-  public String getNameForNumber(Context context, String number) {
-    Uri uri       = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number));
-    Cursor cursor = context.getContentResolver().query(uri, null, null, null, null);
-
-    try {
-      if (cursor != null && cursor.moveToFirst())
-        return cursor.getString(cursor.getColumnIndexOrThrow(PhoneLookup.DISPLAY_NAME));
-    } finally {
-      if (cursor != null)
-        cursor.close();
-    }
-
-    return null;
-  }
-
-  public GroupData getGroupData(Context context, Cursor cursor) {
-    long id      = cursor.getLong(cursor.getColumnIndexOrThrow(ContactsContract.Groups._ID));
-    String title = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Groups.TITLE));
-
-    return new GroupData(id, title);
-  }
-
-  public ContactData getContactData(Context context, Cursor cursor) {
-    return getContactData(context,
-                          cursor.getString(cursor.getColumnIndexOrThrow(Contacts.DISPLAY_NAME)),
-                          cursor.getLong(cursor.getColumnIndexOrThrow(Contacts._ID)));
-  }
-
   public ContactData getContactData(Context context, Uri uri) {
     return getContactData(context, getNameFromContact(context, uri),  Long.parseLong(uri.getLastPathSegment()));
   }
@@ -189,40 +132,14 @@ public class ContactAccessor {
     return contactData;
   }
 
-  public List<ContactData> getGroupMembership(Context context, long groupId) {
-    LinkedList<ContactData> contacts = new LinkedList<ContactData>();
-    Cursor groupMembership           = null;
-
-    try {
-      String selection = ContactsContract.CommonDataKinds.GroupMembership.GROUP_ROW_ID + " = ? AND " +
-                         ContactsContract.CommonDataKinds.GroupMembership.MIMETYPE + " = ?";
-      String[] args    = new String[] {groupId+"",
-                                       ContactsContract.CommonDataKinds.GroupMembership.CONTENT_ITEM_TYPE};
-
-      groupMembership = context.getContentResolver().query(Data.CONTENT_URI, null, selection, args, null);
-
-      while (groupMembership != null && groupMembership.moveToNext()) {
-        String displayName = groupMembership.getString(groupMembership.getColumnIndexOrThrow(Data.DISPLAY_NAME));
-        long contactId     = groupMembership.getLong(groupMembership.getColumnIndexOrThrow(Data.CONTACT_ID));
-
-        contacts.add(getContactData(context, displayName, contactId));
-      }
-    } finally {
-      if (groupMembership != null)
-        groupMembership.close();
-    }
-
-    return contacts;
-  }
-
-  public List<String> getNumbersForThreadSearchFilter(String constraint, ContentResolver contentResolver) {
-    LinkedList<String> numberList = new LinkedList<String>();
+  public List<String> getNumbersForThreadSearchFilter(Context context, String constraint) {
+    LinkedList<String> numberList = new LinkedList<>();
     Cursor cursor                 = null;
 
     try {
-      cursor = contentResolver.query(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI,
-                                     Uri.encode(constraint)),
-                                     null, null, null, null);
+      cursor = context.getContentResolver().query(Uri.withAppendedPath(Phone.CONTENT_FILTER_URI,
+                                                                       Uri.encode(constraint)),
+                                                  null, null, null, null);
 
       while (cursor != null && cursor.moveToNext()) {
         numberList.add(cursor.getString(cursor.getColumnIndexOrThrow(Phone.NUMBER)));
@@ -233,31 +150,25 @@ public class ContactAccessor {
         cursor.close();
     }
 
+    GroupDatabase.Reader reader = null;
+    GroupRecord record;
+
+    try {
+      reader = DatabaseFactory.getGroupDatabase(context).getGroupsFilteredByTitle(constraint);
+
+      while ((record = reader.getNext()) != null) {
+        numberList.add(record.getEncodedId());
+      }
+    } finally {
+      if (reader != null)
+        reader.close();
+    }
+
     return numberList;
   }
 
   public CharSequence phoneTypeToString(Context mContext, int type, CharSequence label) {
     return Phone.getTypeLabel(mContext.getResources(), type, label);
-  }
-
-  private long getContactIdFromLookupUri(Context context, Uri uri) {
-    Cursor cursor = null;
-
-    try {
-      cursor = context.getContentResolver().query(uri,
-                                                  new String[] {ContactsContract.Contacts._ID},
-                                                  null, null, null);
-
-      if (cursor != null && cursor.moveToFirst()) {
-        return cursor.getLong(0);
-      } else {
-        return -1;
-      }
-
-    } finally {
-      if (cursor != null)
-        cursor.close();
-    }
   }
 
   public static class NumberData implements Parcelable {
@@ -295,16 +206,6 @@ public class ContactAccessor {
     }
   }
 
-  public static class GroupData {
-    public final long id;
-    public final String name;
-
-    public GroupData(long id, String name) {
-      this.id   = id;
-      this.name = name;
-    }
-  }
-
   public static class ContactData implements Parcelable {
 
     public static final Parcelable.Creator<ContactData> CREATOR = new Parcelable.Creator<ContactData>() {
@@ -326,13 +227,6 @@ public class ContactAccessor {
       this.name    = name;
       this.numbers = new LinkedList<NumberData>();
     }
-
-    public ContactData(long id, String name, List<NumberData> numbers) {
-      this.id      = id;
-      this.name    = name;
-      this.numbers = numbers;
-    }
-
 
     public ContactData(Parcel in) {
       id      = in.readLong();

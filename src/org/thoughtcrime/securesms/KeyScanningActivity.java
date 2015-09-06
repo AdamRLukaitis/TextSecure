@@ -23,13 +23,15 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.widget.Toast;
 
-import org.thoughtcrime.securesms.util.Base64;
-import org.whispersystems.libaxolotl.IdentityKey;
-import org.thoughtcrime.securesms.util.Dialogs;
-import org.thoughtcrime.securesms.util.DynamicTheme;
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
 
-import org.whispersystems.textsecure.zxing.integration.IntentIntegrator;
-import org.whispersystems.textsecure.zxing.integration.IntentResult;
+import org.thoughtcrime.securesms.crypto.MasterSecret;
+import org.thoughtcrime.securesms.util.Base64;
+import org.thoughtcrime.securesms.util.Dialogs;
+import org.thoughtcrime.securesms.util.DynamicLanguage;
+import org.thoughtcrime.securesms.util.DynamicTheme;
+import org.whispersystems.libaxolotl.IdentityKey;
 
 /**
  * Activity for initiating/receiving key QR code scans.
@@ -38,18 +40,20 @@ import org.whispersystems.textsecure.zxing.integration.IntentResult;
  */
 public abstract class KeyScanningActivity extends PassphraseRequiredActionBarActivity {
 
-  private final DynamicTheme dynamicTheme = new DynamicTheme();
+  private final DynamicTheme    dynamicTheme    = new DynamicTheme();
+  private final DynamicLanguage dynamicLanguage = new DynamicLanguage();
 
   @Override
-  protected void onCreate(Bundle bundle) {
+  protected void onPreCreate() {
     dynamicTheme.onCreate(this);
-    super.onCreate(bundle);
+    dynamicLanguage.onCreate(this);
   }
 
   @Override
   public void onResume() {
     super.onResume();
     dynamicTheme.onResume(this);
+    dynamicLanguage.onResume(this);
   }
 
   @Override
@@ -98,12 +102,23 @@ public abstract class KeyScanningActivity extends PassphraseRequiredActionBarAct
     }
   }
 
+  private IntentIntegrator getIntentIntegrator() {
+    IntentIntegrator intentIntegrator = new IntentIntegrator(this);
+    intentIntegrator.setButtonYesByID(R.string.yes);
+    intentIntegrator.setButtonNoByID(R.string.no);
+    intentIntegrator.setTitleByID(R.string.KeyScanningActivity_install_barcode_Scanner);
+    intentIntegrator.setMessageByID(R.string.KeyScanningActivity_this_application_requires_barcode_scanner_would_you_like_to_install_it);
+    return intentIntegrator;
+  }
+
   protected void initiateScan() {
-    IntentIntegrator.initiateScan(this);
+    IntentIntegrator intentIntegrator = getIntentIntegrator();
+    intentIntegrator.initiateScan();
   }
 
   protected void initiateDisplay() {
-    IntentIntegrator.shareText(this, Base64.encodeBytes(getIdentityKeyToDisplay().serialize()));
+    IntentIntegrator intentIntegrator = getIntentIntegrator();
+    intentIntegrator.shareText(Base64.encodeBytes(getIdentityKeyToDisplay().serialize()));
   }
 
   protected abstract String getScanString();

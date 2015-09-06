@@ -20,20 +20,20 @@ package org.thoughtcrime.securesms.crypto;
 import android.content.Context;
 import android.util.Log;
 
-import com.google.thoughtcrimegson.Gson;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.thoughtcrime.securesms.crypto.storage.TextSecurePreKeyStore;
+import org.thoughtcrime.securesms.util.JsonUtils;
 import org.thoughtcrime.securesms.util.Util;
 import org.whispersystems.libaxolotl.IdentityKeyPair;
 import org.whispersystems.libaxolotl.InvalidKeyException;
 import org.whispersystems.libaxolotl.InvalidKeyIdException;
 import org.whispersystems.libaxolotl.ecc.Curve;
-import org.whispersystems.libaxolotl.ecc.Curve25519;
 import org.whispersystems.libaxolotl.ecc.ECKeyPair;
-import org.whispersystems.libaxolotl.state.SignedPreKeyRecord;
-import org.whispersystems.libaxolotl.state.SignedPreKeyStore;
 import org.whispersystems.libaxolotl.state.PreKeyRecord;
 import org.whispersystems.libaxolotl.state.PreKeyStore;
+import org.whispersystems.libaxolotl.state.SignedPreKeyRecord;
+import org.whispersystems.libaxolotl.state.SignedPreKeyStore;
 import org.whispersystems.libaxolotl.util.Medium;
 
 import java.io.File;
@@ -48,14 +48,14 @@ public class PreKeyUtil {
 
   public static final int BATCH_SIZE = 100;
 
-  public static List<PreKeyRecord> generatePreKeys(Context context, MasterSecret masterSecret) {
-    PreKeyStore        preKeyStore    = new TextSecurePreKeyStore(context, masterSecret);
+  public static List<PreKeyRecord> generatePreKeys(Context context) {
+    PreKeyStore        preKeyStore    = new TextSecurePreKeyStore(context);
     List<PreKeyRecord> records        = new LinkedList<>();
     int                preKeyIdOffset = getNextPreKeyId(context);
 
     for (int i=0;i<BATCH_SIZE;i++) {
       int          preKeyId = (preKeyIdOffset + i) % Medium.MAX_VALUE;
-      ECKeyPair    keyPair  = Curve25519.generateKeyPair();
+      ECKeyPair    keyPair  = Curve.generateKeyPair();
       PreKeyRecord record   = new PreKeyRecord(preKeyId, keyPair);
 
       preKeyStore.storePreKey(preKeyId, record);
@@ -66,13 +66,12 @@ public class PreKeyUtil {
     return records;
   }
 
-  public static SignedPreKeyRecord generateSignedPreKey(Context context, MasterSecret masterSecret,
-                                                        IdentityKeyPair identityKeyPair)
+  public static SignedPreKeyRecord generateSignedPreKey(Context context, IdentityKeyPair identityKeyPair)
   {
     try {
-      SignedPreKeyStore  signedPreKeyStore = new TextSecurePreKeyStore(context, masterSecret);
+      SignedPreKeyStore  signedPreKeyStore = new TextSecurePreKeyStore(context);
       int                signedPreKeyId    = getNextSignedPreKeyId(context);
-      ECKeyPair          keyPair           = Curve25519.generateKeyPair();
+      ECKeyPair          keyPair           = Curve.generateKeyPair();
       byte[]             signature         = Curve.calculateSignature(identityKeyPair.getPrivateKey(), keyPair.getPublicKey().serialize());
       SignedPreKeyRecord record            = new SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), keyPair, signature);
 
@@ -85,8 +84,8 @@ public class PreKeyUtil {
     }
   }
 
-  public static PreKeyRecord generateLastResortKey(Context context, MasterSecret masterSecret) {
-    PreKeyStore preKeyStore = new TextSecurePreKeyStore(context, masterSecret);
+  public static PreKeyRecord generateLastResortKey(Context context) {
+    PreKeyStore preKeyStore = new TextSecurePreKeyStore(context);
 
     if (preKeyStore.containsPreKey(Medium.MAX_VALUE)) {
       try {
@@ -97,7 +96,7 @@ public class PreKeyUtil {
       }
     }
 
-    ECKeyPair    keyPair = Curve25519.generateKeyPair();
+    ECKeyPair    keyPair = Curve.generateKeyPair();
     PreKeyRecord record  = new PreKeyRecord(Medium.MAX_VALUE, keyPair);
 
     preKeyStore.storePreKey(Medium.MAX_VALUE, record);
@@ -109,7 +108,7 @@ public class PreKeyUtil {
     try {
       File             nextFile = new File(getPreKeysDirectory(context), PreKeyIndex.FILE_NAME);
       FileOutputStream fout     = new FileOutputStream(nextFile);
-      fout.write(new Gson().toJson(new PreKeyIndex(id)).getBytes());
+      fout.write(JsonUtils.toJson(new PreKeyIndex(id)).getBytes());
       fout.close();
     } catch (IOException e) {
       Log.w("PreKeyUtil", e);
@@ -120,7 +119,7 @@ public class PreKeyUtil {
     try {
       File             nextFile = new File(getSignedPreKeysDirectory(context), SignedPreKeyIndex.FILE_NAME);
       FileOutputStream fout     = new FileOutputStream(nextFile);
-      fout.write(new Gson().toJson(new SignedPreKeyIndex(id)).getBytes());
+      fout.write(JsonUtils.toJson(new SignedPreKeyIndex(id)).getBytes());
       fout.close();
     } catch (IOException e) {
       Log.w("PreKeyUtil", e);
@@ -135,7 +134,7 @@ public class PreKeyUtil {
         return Util.getSecureRandom().nextInt(Medium.MAX_VALUE);
       } else {
         InputStreamReader reader = new InputStreamReader(new FileInputStream(nextFile));
-        PreKeyIndex       index  = new Gson().fromJson(reader, PreKeyIndex.class);
+        PreKeyIndex       index  = JsonUtils.fromJson(reader, PreKeyIndex.class);
         reader.close();
         return index.nextPreKeyId;
       }
@@ -153,7 +152,7 @@ public class PreKeyUtil {
         return Util.getSecureRandom().nextInt(Medium.MAX_VALUE);
       } else {
         InputStreamReader reader = new InputStreamReader(new FileInputStream(nextFile));
-        SignedPreKeyIndex index  = new Gson().fromJson(reader, SignedPreKeyIndex.class);
+        SignedPreKeyIndex index  = JsonUtils.fromJson(reader, SignedPreKeyIndex.class);
         reader.close();
         return index.nextSignedPreKeyId;
       }
@@ -183,6 +182,7 @@ public class PreKeyUtil {
   private static class PreKeyIndex {
     public static final String FILE_NAME = "index.dat";
 
+    @JsonProperty
     private int nextPreKeyId;
 
     public PreKeyIndex() {}
@@ -195,6 +195,7 @@ public class PreKeyUtil {
   private static class SignedPreKeyIndex {
     public static final String FILE_NAME = "index.dat";
 
+    @JsonProperty
     private int nextSignedPreKeyId;
 
     public SignedPreKeyIndex() {}

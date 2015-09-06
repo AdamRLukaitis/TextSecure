@@ -7,6 +7,7 @@ import org.thoughtcrime.securesms.database.DatabaseFactory;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.whispersystems.textsecure.api.TextSecureMessageSender;
+import org.whispersystems.textsecure.api.push.TextSecureAddress;
 
 public class SecurityEventListener implements TextSecureMessageSender.EventListener {
 
@@ -19,11 +20,10 @@ public class SecurityEventListener implements TextSecureMessageSender.EventListe
   }
 
   @Override
-  public void onSecurityEvent(long recipientId) {
-    Recipients recipients = RecipientFactory.getRecipientsForIds(context, String.valueOf(recipientId), false);
+  public void onSecurityEvent(TextSecureAddress textSecureAddress) {
+    Recipients recipients = RecipientFactory.getRecipientsFromString(context, textSecureAddress.getNumber(), false);
     long       threadId   = DatabaseFactory.getThreadDatabase(context).getThreadIdFor(recipients);
 
     SecurityEvent.broadcastSecurityUpdateEvent(context, threadId);
   }
-
 }
